@@ -1825,6 +1825,36 @@
             }
         }
 
+        // 신규 플레이어 시작 보너스: 레전더리Ⅲ 풀세트 + 챌린저 훈장 + 1급 보석 + 코인
+        function grantStarterGifts() {
+            game.coins = 100000000;
+
+            // 레전더리 Ⅲ 전 부위 장비 지급 + 장착
+            ITEM_CATS.forEach(cat => {
+                const base = ITEM_BASE[cat];
+                const mult = RARITIES[4].mult * SUB_MULT[2]; // 레전더리(4) × Ⅲ(2)
+                const it = {
+                    id: game.nextItemId++, cat, rarity: 4, sub: 2,
+                    star: 0, upg: 0, potential: rollPotential(4),
+                    atk: Math.round(base.atk * mult), def: Math.round(base.def * mult)
+                };
+                game.bag.push(it);
+                game.equipped[cat] = it.id;
+            });
+
+            // 챌린저 훈장 (최고 9등급)
+            game.medalGrade = MEDAL_MAX_GRADE;
+
+            // 모든 1급 보석 5개씩 + 종류별 1개 장착 (최대 5칸)
+            GEM_TYPES.forEach(t => addGem(t.key, GEM_MAX_GRADE, 5));
+            game.equippedGems = GEM_TYPES.slice(0, GEM_MAX_EQUIP).map(t => {
+                removeGem(t.key, GEM_MAX_GRADE, 1);
+                return { type: t.key, grade: GEM_MAX_GRADE };
+            });
+
+            floatMsg('🎁 시작 보너스 지급!', '#ffd700');
+        }
+
         // 캐릭터 로드
         function loadCharacter() {
             const saved = localStorage.getItem('currentCharacter');
@@ -1850,6 +1880,7 @@
             }
 
             // 진행 상황 불러오기 (같은 캐릭터일 때만)
+            let restored = false;
             const progressRaw = localStorage.getItem('gameProgress');
             if (progressRaw) {
                 const progress = JSON.parse(progressRaw);
@@ -1926,7 +1957,13 @@
                     if (progress.job) {
                         loadImages(progress.job);
                     }
+                    restored = true;
                 }
+            }
+            // 신규 플레이어면 시작 보너스 지급 (저장 없거나 다른 캐릭터)
+            if (!restored) {
+                grantStarterGifts();
+                saveProgress();
             }
         }
 
