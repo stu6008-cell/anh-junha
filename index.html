@@ -132,7 +132,7 @@
                     defense: 5,
                     spirit: 10
                 },
-                job: null
+                job: '마법사' // 전직 전 기본 직업: 마법사
             },
             monsters: [],
             monsterSpawnCounter: 0,
@@ -1712,50 +1712,50 @@
             const imageMap = {
                 '마법사': {
                     right: [
-                        './것기/마법사/마법사 것기 1 오른쪽.png',
-                        './것기/마법사/마법사 것기 2 오른쪽.png',
-                        './것기/마법사/마법사 것기 3 오른쪽.png'
+                        './마법사 것기 1 오른쪽.png',
+                        './마법사 것기 2 오른쪽.png',
+                        './마법사 것기 3 오른쪽.png'
                     ],
                     left: [
-                        './것기/마법사/마법사 것기 1 왼쪽.png',
-                        './것기/마법사/마법사 것기2 왼쪽.png',
-                        './것기/마법사/마법사 것기 3 왼쪽.png'
+                        './마법사 것기 1 왼쪽.png',
+                        './마법사 것기2 왼쪽.png',
+                        './마법사 것기 3 왼쪽.png'
                     ]
                 },
                 '암살자': {
                     right: [
-                        './것기/암살자/암살자 것기 1 오른쪽.png',
-                        './것기/암살자/암살자 것기 2 오른쪽.png',
-                        './것기/암살자/암살자 것기 3 오른쪽.png'
+                        './암살자 것기 1 오른쪽.png',
+                        './암살자 것기 2 오른쪽.png',
+                        './암살자 것기 3 오른쪽.png'
                     ],
                     left: [
-                        './것기/암살자/암살자 것기1 왼쪽.png',
-                        './것기/암살자/암살자 것기 2 왼쪽.png',
-                        './것기/암살자/암살자 것기 3 왼쪽.png'
+                        './암살자 것기1 왼쪽.png',
+                        './암살자 것기 2 왼쪽.png',
+                        './암살자 것기 3 왼쪽.png'
                     ]
                 },
                 '과학자': {
                     right: [
-                        './것기/과학자완료/과학자 것기 1 오른쪽.png',
-                        './것기/과학자완료/과학자 것기 2 오른쪽.png',
-                        './것기/과학자완료/과학자 것기 3 오른쪽.png'
+                        './과학자 것기 1 오른쪽.png',
+                        './과학자 것기 2 오른쪽.png',
+                        './과학자 것기 3 오른쪽.png'
                     ],
                     left: [
-                        './것기/과학자완료/과학자 것기 1 왼쪽.png',
-                        './것기/과학자완료/과학자 것기 2왼쪽.png',
-                        './것기/과학자완료/과학자 것기 3 왼쪽.png'
+                        './과학자 것기 1 왼쪽.png',
+                        './과학자 것기 2왼쪽.png',
+                        './과학자 것기 3 왼쪽.png'
                     ]
                 },
                 '환경미화원': {
                     right: [
-                        './것기/환경미화원/환경미화원 것기 1 오른쪽.png',
-                        './것기/환경미화원/환경미화원 것기 2 오른쪽.png',
-                        './것기/환경미화원/환경미화원 것기 3 오른쪽.png'
+                        './환경미화원 것기 1 오른쪽.png',
+                        './환경미화원 것기 2 오른쪽.png',
+                        './환경미화원 것기 3 오른쪽.png'
                     ],
                     left: [
-                        './것기/환경미화원/환경 미화원 것기1.png',
-                        './것기/환경미화원/환경미화원 것기 2 왼쪽.png',
-                        './것기/환경미화원/환경미화원 것기 2왼쪽.png'
+                        './환경 미화원 것기1.png',
+                        './환경미화원 것기 2 왼쪽.png',
+                        './환경미화원 것기 2왼쪽.png'
                     ]
                 }
             };
@@ -1856,7 +1856,7 @@
                 if (progress.charKey === getCharKey()) {
                     Object.assign(game.character.stats, progress.stats);
                     if (typeof progress.x === 'number') game.character.x = progress.x;
-                    game.character.job = progress.job || null;
+                    game.character.job = progress.job || '마법사'; // 전직 전이면 마법사 유지
                     game.selectedJob = progress.selectedJob || null;
                     if (typeof progress.coins === 'number') game.coins = progress.coins;
                     if (typeof progress.currentZone === 'number') game.currentZone = progress.currentZone;
@@ -3899,6 +3899,7 @@
             ctx.fillText(`🪙 ${game.coins.toLocaleString()}`, 26, 33);
 
             // 사냥터 이름 (상단 중앙)
+            const zone = ZONES[game.currentZone];
             ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
             ctx.fillRect(canvas.width / 2 - 90, 12, 180, 30);
             ctx.strokeStyle = '#fff';
@@ -3907,10 +3908,7 @@
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 15px Arial';
             ctx.textAlign = 'center';
-            let zoneLabel = `${ZONES[game.currentZone].name} (M:지도)`;
-            if (game.inExpDungeon) zoneLabel = '경험치 던전';
-            else if (game.inMedalDungeon) zoneLabel = '훈장 던전';
-            ctx.fillText(zoneLabel, canvas.width / 2, 28);
+            ctx.fillText(`${zone.name} (M:지도)`, canvas.width / 2, 28);
 
             // 브금 버튼 (코인 오른쪽)
             const bx = 172, by = 15, bs = 34;
@@ -4385,7 +4383,7 @@
 
         // === 데미지 숫자 스프라이트 (택스처/숫자 택스처.png 의 0~9 비트맵 폰트) ===
         const numberSprite = new Image();
-        numberSprite.src = './택스처/숫자 택스처.png';
+        numberSprite.src = './숫자 택스처.png';
         const NUM_SY = 339, NUM_SH = 187; // 시트에서 숫자들의 세로 범위(잉크 영역)
         // 표시 순서가 1234567890 이라 각 숫자 글자의 가로 [시작,끝] 픽셀
         const NUM_GLYPH = {
