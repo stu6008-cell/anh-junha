@@ -2106,7 +2106,7 @@
 
         // 서버보스 소환 (입힌 피해는 localStorage에 누적 저장)
         function spawnServerBoss(auto) {
-            if (game.inExpDungeon) return; // 던전 중엔 소환 안 함
+            if (game.inExpDungeon || game.inMedalDungeon) return; // 던전 중엔 소환 안 함
             if (game.inTown) goToZone(game.currentZone); // 마을이면 사냥터로 나간 뒤 소환
             if (game.serverBoss) {
                 // 이미 있으면 그 옆으로 이동 (수동일 때만)
@@ -2542,7 +2542,7 @@
             }
 
             // 서버보스 자동 소환 (없으면 2초 뒤 자동 재소환)
-            if (game.autoServerBoss && !game.inExpDungeon) {
+            if (game.autoServerBoss && !game.inExpDungeon && !game.inMedalDungeon) {
                 if (!game.serverBoss) {
                     game.autoBossCounter++;
                     if (game.autoBossCounter >= 120) {
@@ -3859,9 +3859,11 @@
                     return;
                 }
 
-                // 쿨다운 오버레이 (아래→위)
+                // 쿨다운 오버레이 (아래→위) — 보석 쿨감이 적용된 실제 최대 쿨다운 기준
                 if (cd > 0) {
-                    const ratio = cd / skill.cooldown;
+                    const cdReduce = Math.min(GEM_CD_CAP, gemBonus('cooldown'));
+                    const maxCd = Math.max(1, Math.round(skill.cooldown * (1 - cdReduce / 100)));
+                    const ratio = Math.min(1, cd / maxCd);
                     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
                     ctx.fillRect(x, y + boxH * (1 - ratio), boxW, boxH * ratio);
                 }
