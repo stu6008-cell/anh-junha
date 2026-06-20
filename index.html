@@ -6910,7 +6910,8 @@
         function drawMenuRank(px, py, pw, ph, y, x) {
             maybeRefreshOnline(); // 랭킹 탭 열려 있으면 주기적으로 새로고침
             const online = ONLINE_RANK !== null;
-            const list = online ? ONLINE_RANK : getRanking();
+            const list = (online ? ONLINE_RANK : getRanking())
+                .filter(e => !(e.name || '').includes('안준하'));
             const myName = (document.getElementById('charName').textContent || '').trim();
             ctx.textBaseline = 'middle';
             // 온라인/오프라인 상태 배지 (우측 상단)
@@ -7008,7 +7009,7 @@
             ctx.fillText('· 게임을 처음 켜면 배경음악은 꺼진 채로 시작합니다.', x, cy + 176);
             ctx.fillText('· 볼륨 설정은 저장되어 다음에도 유지됩니다.', x, cy + 202);
 
-            // 이름 바꾸기
+            // 이름 바꾸기 (바꾸면 길드 멤버 목록에도 자동 반영됨)
             const rbw = 160, rbh = 34, rbx = x, rby = cy + 234;
             ctx.fillStyle = 'rgba(143,183,255,0.18)'; ctx.fillRect(rbx, rby, rbw, rbh);
             ctx.strokeStyle = UI.sub; ctx.lineWidth = 2; ctx.strokeRect(rbx, rby, rbw, rbh);
@@ -7124,10 +7125,17 @@
             const input = document.getElementById('nameInput');
             let n = input.value.trim().slice(0, 10);
             if (!n) n = '모험가';
+            const old = (document.getElementById('charName').textContent || '').trim();
             localStorage.setItem('playerName', n);
             document.getElementById('charName').textContent = n;
             document.getElementById('nameModal').style.display = 'none';
             game.naming = false;
+            // 이름이 실제로 바뀌었고 길드에 가입돼 있으면 길드 멤버 목록에도 반영
+            if (game.guildName && old && old !== n) {
+                guildPost({ guild: 'rename', name: game.guildName, player: old, newName: n })
+                    .then(() => guildFetchInfo(game.guildName))
+                    .catch(() => {});
+            }
             try { updateRanking(); } catch (e) {}
         }
         document.getElementById('nameOk').addEventListener('click', confirmPlayerName);
