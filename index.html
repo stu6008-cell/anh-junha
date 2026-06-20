@@ -1282,6 +1282,12 @@
             game.spirit.y = game.character.y - 70;
             floatMsg('🧚 자연의 정령 소환! (60초)', '#7CFC00');
         }
+        // 자동사냥에서 조용히 소환 가능한지 (floatMsg 스팸 방지용 사전 체크)
+        function spiritReady() {
+            return game.awakened2 && !game.inTown && !game.naming &&
+                   game.spiritTimer <= 0 && game.spiritCooldown <= 0 &&
+                   game.character.stats.mana >= SPIRIT_MANA;
+        }
         function updateSpirit() {
             if (game.spiritTimer <= 0) return;
             game.spiritTimer--;
@@ -3229,6 +3235,7 @@
                     game.autoHuntCounter++;
                     if (game.autoHuntCounter >= game.autoHuntInterval) {
                         game.autoHuntCounter = 0;
+                        if (spiritReady()) summonSpirit(); // 🧚 정령 자동 소환 (준비됐을 때만)
                         if (!autoUseSkill()) playerAttack();
                     }
                 }
@@ -7130,11 +7137,31 @@
             document.getElementById('charName').textContent = n;
             document.getElementById('nameModal').style.display = 'none';
             game.naming = false;
-            // 이름이 실제로 바뀌었고 길드에 가입돼 있으면 길드 멤버 목록에도 반영
-            if (game.guildName && old && old !== n) {
-                guildPost({ guild: 'rename', name: game.guildName, player: old, newName: n })
-                    .then(() => guildFetchInfo(game.guildName))
-                    .catch(() => {});
+            // 이름이 실제로 바뀌면: 옛 이름 기록을 새 이름으로 옮기고 옛 이름은 지운다
+            if (old && old !== n) {
+                // 로컬 랭킹(내 기록): 옛 이름 → 새 이름, 새 이름 중복은 제거
+                try {
+                    let list = getRanking().filter(e => e.name !== n);
+                    const oi = list.findIndex(e => e.name === old);
+                    if (oi >= 0) list[oi].name = n;     // 옛 기록을 새 이름으로
+                    list.sort((a, b) => b.score - a.score);
+                    localStorage.setItem('gameRanking', JSON.stringify(list.slice(0, 20)));
+                } catch (e) {}
+                // 온라인 랭킹: 옛 이름 기록을 새 이름으로 옮기고 옛 이름 삭제
+                if (RANK_API) {
+                    _lastSubmit = 0; _lastSubmitScore = -1; // 새 이름으로 다시 전송되도록
+                    fetch(RANK_API, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ rank: 'rename', old, name: n })
+                    }).then(() => loadOnlineRanking()).catch(() => {});
+                }
+                // 길드에 가입돼 있으면 멤버 목록(과 리더)에도 새 이름 반영
+                if (game.guildName) {
+                    guildPost({ guild: 'rename', name: game.guildName, player: old, newName: n })
+                        .then(() => guildFetchInfo(game.guildName))
+                        .catch(() => {});
+                }
             }
             try { updateRanking(); } catch (e) {}
         }
@@ -7317,7 +7344,7 @@
         // === 🎵 음표공격 스킬 (글로벌, [T] 키) — 300%, 사냥 중인 모든 적 타격. 마이크 장착 시 2배 ===
         const NOTESKILL_MULT = 3;       // 300%
         const NOTESKILL_MANA = 25;
-        const NOTESKILL_CD = 100;       // 쿨다운(프레임)
+        const NOTESKILL_CD = 0;         // 쿨다운 없음
         function noteSkillReady() {
             return game.hasNoteSkill && (game.skillCooldowns['note'] || 0) <= 0 &&
                    game.character.stats.mana >= NOTESKILL_MANA * MANA_COST_MULT;
