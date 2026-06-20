@@ -1629,7 +1629,7 @@
             // 경매장 창이 열려 있으면 게임 조작 무시
             if (game.aucOpen) { if (e.key === 'Escape') closeAuction(); return; }
 
-            // 🎵 리듬게임이 열려 있으면 방향키로 노트 치기 (다른 조작 무시)
+            // 🎵 리듬게임이 열려 있으면 Q W E R로 노트 치기 (다른 조작 무시)
             if (game.showRhythm) {
                 if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
                 if (rg.state === 'play') {
@@ -7163,19 +7163,20 @@
         }
 
         // ===================== 🎵 리듬게임 (노래노래 이벤트) =====================
-        // 방향키 ←↑↓→ 4키. 7월 10일까지 진행되는 "노래노래 이벤트".
+        // Q W E R 4키. 7월 10일까지 진행되는 "노래노래 이벤트".
         // 할 때마다 🎵음표 재화를 얻고, 한정 상점에서 음표로 [마이크 무기]·[음표공격 스킬]을 각각 1회 구매.
         const RHYTHM_EVENT_END = new Date('2026-07-10T23:59:59');
         function rhythmEventActive() { return new Date() <= RHYTHM_EVENT_END; }
         const MIKE_COST = 30;                     // 🎤 마이크 가격 (음표)
         const NOTESKILL_COST = 25;                // 🎵 음표공격 스킬 가격 (음표)
         const MIKE_ATK = 700;                     // 마이크 공격력 (고정)
-        const RG_KEYS = ['arrowleft', 'arrowup', 'arrowdown', 'arrowright'];
-        const RG_LABELS = ['←', '↑', '↓', '→'];
+        const RG_KEYS = ['q', 'w', 'e', 'r'];
+        const RG_LABELS = ['Q', 'W', 'E', 'R'];
         const RG_COLORS = ['#ff5a7a', '#ffd166', '#4dd2ff', '#7CFC8A'];
         const RG_APPROACH = 1500;                 // 노트가 위에서 판정선까지 내려오는 시간(ms)
         const RG_SONG_LEN = 48000;                // 채보 길이(ms)
         const RG_PERFECT = 55, RG_GOOD = 120;     // 판정 윈도우(ms)
+        const RG_MISS_PENALTY = 150;              // MISS 시 감점(점수는 0 미만으로 안 내려감)
 
         const rg = {
             state: 'intro',  // intro | play | result
@@ -7245,7 +7246,7 @@
                 else { rg.score += 120 + rg.combo; rg.hits.good++; rgJudge('GOOD', '#4dd2ff'); }
                 rg.combo++; if (rg.combo > rg.maxCombo) rg.maxCombo = rg.combo;
             } else {
-                rg.combo = 0; rgJudge('MISS', '#ff5a7a'); // 헛침은 콤보만 끊김(감점·미스집계 없음)
+                rg.combo = 0; rg.score = Math.max(0, rg.score - RG_MISS_PENALTY); rgJudge('MISS', '#ff5a7a'); // 헛침: 콤보 끊김 + 감점
             }
         }
         function updateRhythm() {
@@ -7253,7 +7254,7 @@
             const now = rgSongTime();
             for (const n of rg.notes) {
                 if (!n.hit && !n.dead && now - n.time > RG_GOOD) {
-                    n.dead = true; rg.combo = 0; rg.hits.miss++; rgJudge('MISS', '#ff5a7a');
+                    n.dead = true; rg.combo = 0; rg.hits.miss++; rg.score = Math.max(0, rg.score - RG_MISS_PENALTY); rgJudge('MISS', '#ff5a7a');
                 }
             }
             if (rg.judgeT > 0) rg.judgeT -= 0.04;
@@ -7436,7 +7437,7 @@
                 const line = (t, c, f) => { ctx.fillStyle = c; ctx.font = f; if (t) ctx.fillText(t, W / 2, ly); ly += 28; };
                 if (rg.state === 'intro') {
                     line('🎵 노래노래 리듬게임', '#ffd166', 'bold 26px Arial'); ly += 4;
-                    line('방향키 ←↑↓→ 로 노트를 판정선에 맞춰 치세요!', '#fff', '15px Arial');
+                    line('Q W E R 키로 노트를 판정선에 맞춰 치세요!  (MISS 시 감점)', '#fff', '15px Arial');
                     line('보유 음표  🎵 ' + game.musicNotes, '#ff9be3', 'bold 18px Arial');
                     line('최고 점수: ' + rgBest.toLocaleString(), '#fff', '15px Arial');
                     line(rhythmEventActive() ? '할 때마다 음표 획득! (이벤트 7/10까지)' : '이벤트 종료 — 점수 도전만 가능', '#aaa', '13px Arial');
