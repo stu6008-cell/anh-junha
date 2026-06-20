@@ -1044,10 +1044,11 @@
                 } else floatMsg('강화 실패 (길드 확인)', '#ff6b6b');
             }).catch(() => { _guildUpgrading = false; floatMsg('서버 연결 실패', '#ff6b6b'); });
         }
-        // 1000레벨마다 획득 경험치가 2배씩 누적 (1000→2배, 2000→4배, 3000→8배 …)
+        // 1000레벨마다 획득 경험치가 2배씩 누적 (1000→2배, 2000→4배, 3000→8배) — 최대 8배 상한
         const LEVEL_EXP_BOOST_FROM = 1000;
+        const LEVEL_EXP_BOOST_MAX = 8; // 경험치 폭주 방지: 최대 8배까지만
         function expGainMult() {
-            return Math.pow(2, Math.floor(game.character.stats.level / LEVEL_EXP_BOOST_FROM));
+            return Math.min(LEVEL_EXP_BOOST_MAX, Math.pow(2, Math.floor(game.character.stats.level / LEVEL_EXP_BOOST_FROM)));
         }
         function gemCount(type, grade) { return (game.gemInv[type] && game.gemInv[type][grade]) || 0; }
         function addGem(type, grade, n = 1) {
