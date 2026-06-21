@@ -516,6 +516,23 @@
             storyLines: [],          // 현재 컷신 대사 배열
             storyIndex: 0,           // 현재 대사 인덱스
             storyButtons: [],
+            boughtSciSkin: false,    // ✨ 과학자 음표 스킨 구매 여부 (음표 50)
+            equippedSciSkin: false,  // ✨ 과학자 음표 스킨 장착 여부 (토글)
+            questTab: 'normal',      // 퀘스트 창 탭: 'normal' | 'weekly'
+            weeklyClaimed: [],       // 📅 이번 주 수령한 주간 퀘스트 id
+            weeklyResetDate: '',     // 주간 리셋 기준(이번 주 일요일 날짜)
+            weeklyKills: 0, weeklyBoss: 0, weeklySboss: 0, weeklyDboss: 0, // 주간 카운터
+            weeklyTowerBest: 0,      // 이번 주 무한탑 최고층
+            dailyBossDate: '',       // 🌅 오늘 일일보스 처치 날짜
+            dailyBoss: null,         // 현재 일일보스 몬스터
+            inTower: false,          // 🗼 무한의 탑 입장 중
+            towerLevel: 0,           // 현재 층
+            towerBest: 0,            // 역대 최고층
+            towerButton: null,
+            petType: 'dragon',       // 🐾 현재 펫 종류
+            petOwned: ['dragon'],    // 보유 펫 종류 목록
+            showPetBook: false,      // 펫 도감 열림
+            petBookButtons: [],
 
             assetLoad: { bgm: false, character: false }
         };
@@ -527,15 +544,42 @@
         const PET_ICON = '🐲';
         const PET_MAX_LEVEL = 5;               // 등급별 최대 강화 단계
         const PET_SCROLL_COST = 3000;          // 펫 강화서 1개 가격 (코인) — 10배
+        // 🐾 펫 종류 (수집/변경). dmg=펫공격배수, regen=회복배수, stat=스탯보너스배수
+        const PET_TYPES = [
+            { id: 'dragon',  name: '아기용',   icon: '🐲', desc: '밸런스형 (기본)',            dmg: 1.0,  regen: 1.0, stat: 1.0,  unlock: '기본 보유' },
+            { id: 'wolf',    name: '늑대',     icon: '🐺', desc: '공격 특화 · 펫 데미지 1.5배', dmg: 1.5,  regen: 0.7, stat: 1.0,  unlock: '보스 100회 처치' },
+            { id: 'phoenix', name: '불사조',   icon: '🦅', desc: '회복 특화 · 회복 2배',        dmg: 0.8,  regen: 2.0, stat: 1.0,  unlock: '무한의 탑 10층 도달' },
+            { id: 'golem',   name: '골렘',     icon: '🗿', desc: '수호형 · 스탯보너스 1.4배',   dmg: 0.8,  regen: 1.0, stat: 1.4,  unlock: '서버보스 5회 처치' },
+            { id: 'fairy',   name: '요정',     icon: '🧚', desc: '만능형 · 전부 1.15배',        dmg: 1.15, regen: 1.15, stat: 1.15, unlock: '몬스터 5,000마리 처치' },
+            { id: 'note',    name: '음표펫',   icon: '🎵', desc: '아기용 + 음표공격[T] 쿨타임 60%↓', dmg: 1.0, regen: 1.0, stat: 1.0, unlock: '음표 상점 40🎵 구매', buyNotes: 40 }
+        ];
+        const NOTE_PET_COST = 40;  // 🎵 음표펫 가격 (음표)
+        function petTypeDef() { return PET_TYPES.find(p => p.id === game.petType) || PET_TYPES[0]; }
+        function acquirePet(id) {
+            if (game.petOwned.includes(id)) return;
+            game.petOwned.push(id);
+            const p = PET_TYPES.find(x => x.id === id);
+            if (p) floatMsg(`🎉 새 펫 [${p.name}] 획득! 펫 도감에서 변경 가능`, '#ffd700');
+            saveProgress();
+        }
+        function checkPetUnlocks() {
+            const cond = {
+                wolf:    () => (game.bossKills || 0) >= 100,
+                phoenix: () => (game.towerBest || 0) >= 10,
+                golem:   () => (game.serverBossKills || 0) >= 5,
+                fairy:   () => (game.totalKills || 0) >= 5000
+            };
+            for (const id in cond) { if (!game.petOwned.includes(id) && cond[id]()) acquirePet(id); }
+        }
 
         // 물약 설정
         const HP_POTION = { cost: 1200, heal: 0.45 }; // 체력 물약: maxHp의 45% 회복 (10배)
         const MP_POTION = { cost: 900,  heal: 0.6 };  // 마나 물약: maxMana의 60% 회복 (10배)
         // 등급 배율 × 강화 단계 → 펫 강함
         function petPower() { return RARITIES[game.pet.rarity].mult * (1 + game.pet.level * 0.25); }
-        function petDamageRatio() { return 1.0 * petPower(); } // 플레이어 공격력 대비 비율 (대폭 강화)
-        // 펫이 캐릭터에게 주는 공격력·방어력 % 보너스 (등급/강화 비례)
-        function petStatBonus() { return Math.round(petPower() * 9); }
+        function petDamageRatio() { return 1.0 * petPower() * petTypeDef().dmg; } // 플레이어 공격력 대비 비율 (펫 종류 반영)
+        // 펫이 캐릭터에게 주는 공격력·방어력 % 보너스 (등급/강화/종류 비례)
+        function petStatBonus() { return Math.round(petPower() * 9 * petTypeDef().stat); }
         function petInterval() { return Math.max(10, 42 - (game.pet.rarity * 4 + game.pet.level * 2)); } // 공격 더 빠르게
         function petPromoteCost() { return (game.pet.rarity + 1) * 5; } // 등급업에 필요한 강화서 수
 
@@ -686,6 +730,57 @@
             if (r.scrolls) parts.push(`+${r.scrolls}📜`);
             if (r.cubes) parts.push(`+${r.cubes}🔮`);
             floatMsg(`✅ 퀘스트 완료! ${parts.join(' ')}`, '#2ecc71');
+            saveProgress();
+        }
+
+        // === 📅 주간 퀘스트 (매주 일요일 리셋, 주 단위 카운터 기반, 큰 보상) ===
+        const WEEKLY_QUESTS = [
+            { id: 'wk_kill',  title: '이번 주 몬스터 2,000마리 처치', type: 'wkill',  goal: 2000, reward: { coins: 300000,  cubes: 3 } },
+            { id: 'wk_boss',  title: '이번 주 보스 100회 처치',       type: 'wboss',  goal: 100,  reward: { coins: 500000,  cubes: 5 } },
+            { id: 'wk_sboss', title: '이번 주 서버보스 7회 처치',     type: 'wsboss', goal: 7,    reward: { coins: 800000,  cubes: 8, scrolls: 5 } },
+            { id: 'wk_daily', title: '이번 주 일일 보스 5회 처치',    type: 'wdboss', goal: 5,    reward: { coins: 1000000, cubes: 10 } },
+            { id: 'wk_tower', title: '무한의 탑 이번 주 20층 도달',    type: 'wtower', goal: 20,   reward: { coins: 1500000, cubes: 12, scrolls: 8 } }
+        ];
+        function weeklyProgress(q) {
+            switch (q.type) {
+                case 'wkill':  return game.weeklyKills || 0;
+                case 'wboss':  return game.weeklyBoss || 0;
+                case 'wsboss': return game.weeklySboss || 0;
+                case 'wdboss': return game.weeklyDboss || 0;
+                case 'wtower': return game.weeklyTowerBest || 0;
+                default:       return 0;
+            }
+        }
+        function weeklyDone(q) { return (game.weeklyClaimed || []).includes(q.id); }
+        function weeklyClaimable(q) { return !weeklyDone(q) && weeklyProgress(q) >= q.goal; }
+        function weeklyClaimableCount() { return WEEKLY_QUESTS.filter(weeklyClaimable).length; }
+        function claimWeekly(id) {
+            const q = WEEKLY_QUESTS.find(x => x.id === id);
+            if (!q || !weeklyClaimable(q)) return;
+            const r = q.reward;
+            if (r.coins) game.coins += r.coins;
+            if (r.scrolls) game.scrolls += r.scrolls;
+            if (r.cubes) game.cubes += r.cubes;
+            if (!game.weeklyClaimed) game.weeklyClaimed = [];
+            game.weeklyClaimed.push(q.id);
+            const parts = [];
+            if (r.coins) parts.push(`+${r.coins.toLocaleString()}🪙`);
+            if (r.scrolls) parts.push(`+${r.scrolls}📜`);
+            if (r.cubes) parts.push(`+${r.cubes}🔮`);
+            floatMsg(`📅 주간 퀘스트 완료! ${parts.join(' ')}`, '#4a90e2');
+            saveProgress();
+        }
+        // 이번 주(일요일 기준) 식별 문자열
+        function weekKeyStr() {
+            const d = new Date(); d.setDate(d.getDate() - d.getDay()); // 이번 주 일요일로
+            return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+        }
+        function checkWeeklyReset() {
+            const wk = weekKeyStr();
+            if (game.weeklyResetDate === wk) return;
+            game.weeklyResetDate = wk;
+            game.weeklyClaimed = [];
+            game.weeklyKills = 0; game.weeklyBoss = 0; game.weeklySboss = 0; game.weeklyDboss = 0; game.weeklyTowerBest = 0;
             saveProgress();
         }
 
@@ -1289,8 +1384,9 @@
             if (pet.regenCounter >= 60) {
                 pet.regenCounter = 0;
                 const cap = effMaxHp();
-                const hpHeal = Math.max(1, Math.round(cap * 0.02 * petPower()));
-                const mpHeal = Math.max(1, Math.round(char.stats.maxMana * 0.03 * petPower()));
+                const rg = petTypeDef().regen;
+                const hpHeal = Math.max(1, Math.round(cap * 0.02 * petPower() * rg));
+                const mpHeal = Math.max(1, Math.round(char.stats.maxMana * 0.03 * petPower() * rg));
                 if (char.stats.hp < cap) {
                     char.stats.hp = Math.min(cap, char.stats.hp + hpHeal);
                 }
@@ -1317,7 +1413,7 @@
             ctx.font = '30px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(PET_ICON, screenX, screenY + bob);
+            ctx.fillText(petTypeDef().icon, screenX, screenY + bob);
 
             // 등급 + 강화 표시
             ctx.fillStyle = r.color;
@@ -1492,6 +1588,7 @@
         // 2차 각성 발동 (2막50 클리어 시)
         function triggerSecondAwakening() {
             game.awakened2 = true;
+            game.awakened = true; // 1차 미보유로 2차 도달 시에도 배수 정상 적용
             applyAwakening();
             game.skillCooldowns = { q: 0, w: 0, e: 0, f: 0, r: 0 };
             game.zoneClearMsg = 0;
@@ -1564,10 +1661,11 @@
                 this.type = type;
                 this.isBoss = opts.isBoss || false;
                 this.isServerBoss = opts.isServerBoss || false;
-                const big = this.isBoss || this.isServerBoss;
-                this.width = this.isServerBoss ? 210 : (this.isBoss ? 150 : 60);
-                this.height = this.isServerBoss ? 260 : (this.isBoss ? 190 : 80);
-                this.speed = this.isServerBoss ? 1.0 : (this.isBoss ? 1.4 : 2);
+                this.isDailyBoss = opts.isDailyBoss || false;
+                const big = this.isBoss || this.isServerBoss || this.isDailyBoss;
+                this.width = this.isServerBoss ? 210 : (this.isDailyBoss ? 180 : (this.isBoss ? 150 : 60));
+                this.height = this.isServerBoss ? 260 : (this.isDailyBoss ? 220 : (this.isBoss ? 190 : 80));
+                this.speed = this.isServerBoss ? 1.0 : (big ? 1.4 : 2);
                 this.direction = Math.random() > 0.5 ? 'left' : 'right';
                 this.frameIndex = 0;
                 this.frameCounter = 0;
@@ -1575,7 +1673,7 @@
                 this.image = null;
                 this.moveCounter = 0;
                 this.moveChangeInterval = 120;
-                this.attackRange = this.isServerBoss ? 210 : (this.isBoss ? 160 : 100); // 공격 범위
+                this.attackRange = this.isServerBoss ? 210 : (big ? 160 : 100); // 공격 범위
                 this.attackCooldownMax = big ? 45 : 60;
                 this.attackCooldown = Math.floor(Math.random() * this.attackCooldownMax); // 첫 공격 분산 (동시타격 방지)
                 this.hp = opts.hp || 50;
@@ -1701,6 +1799,7 @@
             // 📅 출석창 / 🛍️ 일일상점: Esc로 닫기
             if (game.showAttend) { if (e.key === 'Escape') game.showAttend = false; return; }
             if (game.showDailyShop) { if (e.key === 'Escape') game.showDailyShop = false; return; }
+            if (game.showPetBook) { if (e.key === 'Escape') game.showPetBook = false; return; }
 
             // 채팅 창이 열려 있으면 게임 조작 무시 (입력창 타이핑은 그대로 통과)
             if (game.chatOpen) { if (e.key === 'Escape') closeChat(); return; }
@@ -1807,6 +1906,27 @@
             // 📖 스토리 컷신 (열려 있으면 최우선 — 아무데나 클릭하면 다음 대사)
             if (game.storyActive) { advanceStory(); return; }
 
+            // 🗼 무한의 탑 나가기 버튼 (HUD) — 다른 모달이 떠 있으면 무시 (stale 버튼 가로채기 방지)
+            if (game.inTower && game.towerExitButton &&
+                !game.showShop && !game.showQuest && !game.showMap && !game.showMenu &&
+                !game.showPetBook && !game.showDailyShop && !game.showAttend && !game.eventTab) {
+                const b = game.towerExitButton;
+                if (clickX >= b.x && clickX <= b.x + b.w && clickY >= b.y && clickY <= b.y + b.h) { exitTower(); return; }
+            }
+
+            // 🐾 펫 도감
+            if (game.showPetBook) {
+                for (const b of (game.petBookButtons || [])) {
+                    if (clickX >= b.x && clickX <= b.x + b.w && clickY >= b.y && clickY <= b.y + b.h) {
+                        if (b.action === 'close') game.showPetBook = false;
+                        else if (b.action === 'equip') equipPet(b.id);
+                        else if (b.action === 'buyNotePet') buyNotePet();
+                        return;
+                    }
+                }
+                return;
+            }
+
             // 📅 출석 보상창
             if (game.showAttend) {
                 for (const b of (game.attendButtons || [])) {
@@ -1841,6 +1961,8 @@
                         else if (b.act === 'back') rg.state = 'intro';
                         else if (b.act === 'buyMike') buyMike();
                         else if (b.act === 'buyNote') buyNoteSkill();
+                        else if (b.act === 'buySciSkin') buySciSkin();
+                        else if (b.act === 'toggleSciSkin') toggleSciSkin();
                         return;
                     }
                 }
@@ -1923,6 +2045,8 @@
                     if (clickX >= btn.x && clickX <= btn.x + btn.w &&
                         clickY >= btn.y && clickY <= btn.y + btn.h) {
                         if (btn.action === 'claim') claimQuest(btn.id);
+                        else if (btn.action === 'claimW') claimWeekly(btn.id);
+                        else if (btn.action === 'qtab') { game.questTab = btn.tab; game.questPage = 0; }
                         else if (btn.action === 'prevPage') game.questPage = Math.max(0, game.questPage - 1);
                         else if (btn.action === 'nextPage') game.questPage++;
                         else if (btn.action === 'close') game.showQuest = false;
@@ -1992,6 +2116,8 @@
                                 // 런처: 이벤트 닫고 해당 기능 실행
                                 game.showEvent = false; game.eventTab = null;
                                 if (btn.launch === 'warpBoss') warpToBoss();
+                                else if (btn.launch === 'dailyBoss') spawnDailyBoss();
+                                else if (btn.launch === 'tower') enterTower();
                                 else if (btn.launch === 'gacha') game.showShop = true;
                                 else if (btn.launch === 'town') { game.inTown ? leaveTown() : goToTown(); }
                                 else if (btn.launch === 'pvp') openPvp();
@@ -2075,6 +2201,7 @@
                         if (hit(game.cubeButton)) { buyCube(); return; }
                         if (hit(game.petScrollButton)) { buyPetScroll(); return; }
                         if (hit(game.petButton)) { petAction(); return; }
+                        if (hit(game.petBookButton)) { game.showPetBook = true; return; }
                         if (hit(game.hpPotionButton)) { buyHpPotion(); return; }
                         if (hit(game.mpPotionButton)) { buyMpPotion(); return; }
 
@@ -2262,7 +2389,7 @@
             game.monsters = game.monsters.filter(m => m !== monster);
 
             // 퀘스트용 처치 카운트 (던전 원킬 파밍은 제외)
-            if (!game.inExpDungeon && !game.inMedalDungeon) game.totalKills = (game.totalKills || 0) + 1;
+            if (!game.inExpDungeon && !game.inMedalDungeon) { game.totalKills = (game.totalKills || 0) + 1; game.weeklyKills = (game.weeklyKills || 0) + 1; }
 
             // 🔥 연속 처치 콤보: 처치할 때마다 +1, 타이머 갱신. 콤보당 코인 보너스(최대 +50%)
             game.comboKills++;
@@ -2345,6 +2472,7 @@
             // 보스 처치 → 다음 사냥터 해금 & 이동
             if (monster.isBoss) {
                 game.bossKills = (game.bossKills || 0) + 1; // 퀘스트용
+                game.weeklyBoss = (game.weeklyBoss || 0) + 1;
                 game.boss = null;
                 onBossDefeated();
             }
@@ -2360,6 +2488,7 @@
                 });
                 // 서버보스 처치 횟수 누적 → 10회 특수스킬(F), 30회 궁극기(R)
                 game.serverBossKills = (game.serverBossKills || 0) + 1;
+                game.weeklySboss = (game.weeklySboss || 0) + 1;
                 const k = game.serverBossKills;
                 const sj = JOB_SKILLS[game.character.job];
                 if (k === SPECIAL_BOSS_KILLS) {
@@ -2373,6 +2502,19 @@
                     floatMsg(`🌐 서버보스 ${k}회 (F:10 · R:30)`, '#b388ff');
                 }
             }
+
+            // 🌅 일일 보스 처치 → 오늘 처치 기록 + 큰 보상
+            if (monster.isDailyBoss) {
+                game.dailyBoss = null;
+                game.dailyBossDate = todayStr();
+                game.weeklyDboss = (game.weeklyDboss || 0) + 1;
+                game.cubes += 5;
+                game.serverClearMsg = 240;
+                game.damageText.push({ x: monster.x, y: monster.y - 130, text: '🌅 일일 보스 처치! +🔮5', alpha: 1, duration: 70, color: '#ff9800' });
+                floatMsg('🌅 일일 보스 처치! 내일 다시 도전하세요', '#ff9800');
+            }
+
+            checkPetUnlocks(); // 🐾 조건 충족 시 새 펫 자동 획득
         }
 
         // 보스 처치 처리
@@ -2714,7 +2856,18 @@
                 achClaimed: game.achClaimed,
                 dailyShopDate: game.dailyShopDate,
                 dailyShopItems: game.dailyShopItems,
-                storySeen: game.storySeen
+                storySeen: game.storySeen,
+                boughtSciSkin: game.boughtSciSkin,
+                equippedSciSkin: game.equippedSciSkin,
+                weeklyClaimed: game.weeklyClaimed,
+                weeklyResetDate: game.weeklyResetDate,
+                weeklyKills: game.weeklyKills, weeklyBoss: game.weeklyBoss,
+                weeklySboss: game.weeklySboss, weeklyDboss: game.weeklyDboss,
+                weeklyTowerBest: game.weeklyTowerBest,
+                dailyBossDate: game.dailyBossDate,
+                towerBest: game.towerBest,
+                petType: game.petType,
+                petOwned: game.petOwned
             };
             localStorage.setItem('gameProgress', JSON.stringify(progress));
             try { updateRanking(); } catch (e) {}
@@ -2869,6 +3022,23 @@
                     if (typeof progress.dailyShopDate === 'string') game.dailyShopDate = progress.dailyShopDate;
                     if (Array.isArray(progress.dailyShopItems)) game.dailyShopItems = progress.dailyShopItems;
                     if (Array.isArray(progress.storySeen)) game.storySeen = progress.storySeen;
+                    if (progress.boughtSciSkin) game.boughtSciSkin = true;
+                    if (progress.equippedSciSkin) game.equippedSciSkin = true;
+                    if (Array.isArray(progress.weeklyClaimed)) game.weeklyClaimed = progress.weeklyClaimed;
+                    if (typeof progress.weeklyResetDate === 'string') game.weeklyResetDate = progress.weeklyResetDate;
+                    if (typeof progress.weeklyKills === 'number') game.weeklyKills = progress.weeklyKills;
+                    if (typeof progress.weeklyBoss === 'number') game.weeklyBoss = progress.weeklyBoss;
+                    if (typeof progress.weeklySboss === 'number') game.weeklySboss = progress.weeklySboss;
+                    if (typeof progress.weeklyDboss === 'number') game.weeklyDboss = progress.weeklyDboss;
+                    if (typeof progress.weeklyTowerBest === 'number') game.weeklyTowerBest = progress.weeklyTowerBest;
+                    if (typeof progress.dailyBossDate === 'string') game.dailyBossDate = progress.dailyBossDate;
+                    if (typeof progress.towerBest === 'number') game.towerBest = progress.towerBest;
+                    if (Array.isArray(progress.petOwned)) game.petOwned = progress.petOwned;
+                    if (!game.petOwned.includes('dragon')) game.petOwned.unshift('dragon'); // 기본 펫 항상 보유
+                    // 보유 + 실존하는 종류만 장착 (변조/구버전 방어)
+                    if (typeof progress.petType === 'string' && game.petOwned.includes(progress.petType)
+                        && PET_TYPES.some(p => p.id === progress.petType)) game.petType = progress.petType;
+                    else game.petType = 'dragon';
                     // 보석 복원 (유효한 종류만)
                     if (progress.gemInv && typeof progress.gemInv === 'object') {
                         game.gemInv = {};
@@ -3038,6 +3208,21 @@
                 game.monsters.push(m);
                 return;
             }
+            // 🗼 무한의 탑: 층(level)에 비례해 점점 강해지는 몬스터 (최고 사냥터 기준 스케일)
+            if (game.inTower) {
+                const base = ZONES[ZONES.length - 1];
+                const lv = game.towerLevel;
+                const scale = 1 + (lv - 1) * 0.45;   // 층마다 +45%
+                const m = new Monster(x, y, 'monster', {
+                    hp: Math.round(base.monHp * scale),
+                    damage: Math.round(base.monDmg * (1 + (lv - 1) * 0.2)),
+                    coinReward: Math.round(base.monCoin * (1 + lv * 0.3)),
+                    expReward: Math.round(base.monExp * (1 + lv * 0.5))
+                });
+                m.image = sharedMonsterImg;
+                game.monsters.push(m);
+                return;
+            }
             const zone = ZONES[game.currentZone];
             const monster = new Monster(x, y, 'monster', {
                 hp: zone.monHp, damage: zone.monDmg, coinReward: zone.monCoin, expReward: zone.monExp
@@ -3048,7 +3233,7 @@
 
         // 보스 생성 (현재 사냥터 보스)
         function spawnBoss() {
-            if (game.inExpDungeon || game.inMedalDungeon || game.raidActive || game.inTown) return; // 던전/길드전/마을엔 보스 없음
+            if (game.inExpDungeon || game.inMedalDungeon || game.raidActive || game.inTown || game.inTower) return; // 던전/길드전/마을/탑엔 사냥터 보스 없음
             if (game.boss) return; // 이미 보스가 있으면 중복 생성 방지
             const zone = ZONES[game.currentZone];
             const isFinal = game.currentZone === ACT1_FINAL_ZONE; // 천상10 = 1막 최종보스(4직업 합체)
@@ -3092,7 +3277,7 @@
 
         // 서버보스 소환 (입힌 피해는 localStorage에 누적 저장)
         function spawnServerBoss(auto) {
-            if (game.inExpDungeon || game.inMedalDungeon || game.raidActive) return; // 던전/길드전 중엔 소환 안 함
+            if (game.inExpDungeon || game.inMedalDungeon || game.raidActive || game.inTower) return; // 던전/길드전/탑 중엔 소환 안 함
             if (game.inTown) goToZone(game.currentZone); // 마을이면 사냥터로 나간 뒤 소환
             if (game.serverBoss) {
                 // 이미 있으면 그 옆으로 이동 (수동일 때만)
@@ -3135,6 +3320,65 @@
                 x: sb.x, y: sb.y - 70,
                 text: '🌐 서버보스 등장!', alpha: 1, duration: 50, color: '#8e44ad'
             });
+        }
+
+        // 🌅 일일 보스 (하루 1회, 강력 + 큰 보상)
+        const DAILY_BOSS = { hpMult: 8, dmgMult: 3, baseTier: 1 }; // 노말 서버보스 기준 강화
+        function dailyBossAvailable() { return game.dailyBossDate !== todayStr(); }
+        function spawnDailyBoss() {
+            if (game.inExpDungeon || game.inMedalDungeon || game.raidActive || game.inTower) { floatMsg('지금은 소환할 수 없어요', '#ff6b6b'); return; }
+            if (!dailyBossAvailable()) { floatMsg('🌅 오늘 일일 보스는 이미 처치했어요 (내일 다시!)', '#ff9800'); return; }
+            if (game.inTown) goToZone(game.currentZone);
+            if (game.dailyBoss) { game.character.x = Math.max(0, Math.min(game.dailyBoss.x - 170, MAP.width - game.character.width)); return; }
+            const def = SERVER_BOSSES[DAILY_BOSS.baseTier];
+            const db = new Monster(Math.min(game.character.x + 280, MAP.width - 140), 300, 'dailyboss', {
+                isDailyBoss: true,
+                hp: def.maxHp * DAILY_BOSS.hpMult,
+                damage: def.damage * DAILY_BOSS.dmgMult,
+                coinReward: def.coinReward * 5,
+                expReward: def.expReward * 5
+            });
+            db.image = finalBossImg;
+            db.label = '🌅 일일 보스';
+            game.dailyBoss = db;
+            game.monsters.push(db);
+            game.character.x = Math.max(0, Math.min(db.x - 170, MAP.width - game.character.width));
+            game.showEvent = false; game.eventTab = null; game.summonFlash = 36;
+            game.damageText.push({ x: db.x, y: db.y - 90, text: '🌅 일일 보스 등장!', alpha: 1, duration: 60, color: '#ff9800' });
+        }
+
+        // 🗼 무한의 탑 (층마다 강해지는 몬스터, 최고층 기록)
+        function enterTower() {
+            if (game.inExpDungeon || game.inMedalDungeon || game.raidActive) { floatMsg('지금은 입장할 수 없어요', '#ff6b6b'); return; }
+            game.inTower = true; game.inTown = false;
+            game.towerLevel = 1;
+            game.boss = null; game.serverBoss = null; game.dailyBoss = null;
+            game.showEvent = false; game.eventTab = null;
+            game.character.x = 300;
+            spawnTowerFloor();
+            floatMsg('🗼 무한의 탑 입장! 1층부터 도전', '#b388ff');
+        }
+        function spawnTowerFloor() {
+            game.monsters = []; game.boss = null;
+            for (let i = 0; i < MAX_MONSTERS; i++) {
+                const x = 200 + i * ((MAP.width - 400) / (MAX_MONSTERS - 1));
+                spawnMonster(x, 350);
+            }
+        }
+        function towerNextFloor() {
+            game.towerLevel++;
+            if (game.towerLevel > game.towerBest) game.towerBest = game.towerLevel;
+            if (game.towerLevel > (game.weeklyTowerBest || 0)) game.weeklyTowerBest = game.towerLevel;
+            checkPetUnlocks();
+            floatMsg(`🗼 ${game.towerLevel - 1}층 클리어! ${game.towerLevel}층 진입`, '#b388ff');
+            spawnTowerFloor();
+            saveProgress();
+        }
+        function exitTower() {
+            if (!game.inTower) return;
+            game.inTower = false;
+            floatMsg(`🗼 무한의 탑 종료 (최고 ${game.towerBest}층)`, '#b388ff');
+            goToZone(game.currentZone);
         }
 
         // 보스에게 즉시 이동 (보스가 없으면 소환)
@@ -3305,7 +3549,7 @@
         // 게임 업데이트
         function update() {
             // 지도/상점/직업선택/집 창이 열려 있으면 게임 일시정지
-            if (game.showMap || game.showShop || game.showQuest || game.selectingJob || game.eventTab || game.showHome || game.showMenu || game.naming || game.pvpOpen || game.chatOpen || game.aucOpen || game.showRhythm || game.storyActive || game.showAttend || game.showDailyShop) return;
+            if (game.showMap || game.showShop || game.showQuest || game.selectingJob || game.eventTab || game.showHome || game.showMenu || game.naming || game.pvpOpen || game.chatOpen || game.aucOpen || game.showRhythm || game.storyActive || game.showAttend || game.showDailyShop || game.showPetBook) return;
 
             // 마을에서는 전투 없이 이동만
             if (game.inTown) { updateTown(); return; }
@@ -3503,7 +3747,7 @@
             game.monsterSpawnCounter++;
             // 던전은 원킬이라 더 자주(0.5초) 가득 채워서 끊김 없이 사냥
             const spawnInterval = inDungeon ? 30 : game.monsterSpawnInterval;
-            if (!game.raidActive && game.monsterSpawnCounter >= spawnInterval) {
+            if (!game.raidActive && !game.inTower && game.monsterSpawnCounter >= spawnInterval) {
                 game.monsterSpawnCounter = 0;
                 let normalCount = game.monsters.filter(m => !m.isBoss && !m.isServerBoss).length;
                 if (inDungeon) {
@@ -3515,6 +3759,9 @@
                     spawnMonster(Math.random() * (MAP.width - 200) + 100, 350);
                 }
             }
+
+            // 🗼 무한의 탑: 현재 층 몬스터를 전부 잡으면 다음 층으로
+            if (game.inTower && game.monsters.length === 0) towerNextFloor();
 
             // 경험치 던전 시간 카운트다운 → 0이면 종료
             if (game.inExpDungeon) {
@@ -3948,8 +4195,8 @@
         const SCI_SKIN_TOP = 0.29;   // 위쪽 크롭 (라벨 24~28.5% 아래, 머리 37.5% 위로 여백 확보)
         const SCI_SKIN_BOT = 0.24;   // 아래쪽 여백 크롭
         const sciSkinSheet = new Image();
-        sciSkinSheet.src = './과학자 음표스킨.png';
-        function sciSkinOn() { return game.character.job === '과학자' && sciSkinSheet.complete && sciSkinSheet.naturalWidth > 0; }
+        sciSkinSheet.src = './과학자 음표스킨-Photoroom.png';
+        function sciSkinOn() { return game.character.job === '과학자' && game.boughtSciSkin && game.equippedSciSkin && sciSkinSheet.complete && sciSkinSheet.naturalWidth > 0; }
 
         // 캐릭터 그리기
         function drawCharacter() {
@@ -4126,6 +4373,8 @@
                 { tab: 'gem',  label: '💎 보석' },
                 { tab: 'medal', label: '🎖️ 훈장' },
                 { tab: 'boss', label: '🌐 서버보스' },
+                { launch: 'dailyBoss', label: '🌅 일일보스' },
+                { launch: 'tower', label: '🗼 무한의탑' },
                 { tab: 'dungeon', label: '⏳ 경험치던전' },
                 { tab: 'medalDungeon', label: '🎗️ 훈장던전' },
                 { tab: 'guild', label: '🏰 길드' },
@@ -5054,7 +5303,12 @@
             game.hpPotionButton = { x, y: cy, w: half, h: bh };
             drawShopHalf(x2, cy, half, bh, game.coins >= MP_POTION.cost ? '#1f618d' : '#555', '#5dade2', `🔷${game.mpPotions} ·${MP_POTION.cost}🪙`);
             game.mpPotionButton = { x: x2, y: cy, w: half, h: bh };
-            cy += bh + 22;
+            cy += bh + 12;
+
+            // 🐾 펫 도감 (펫 종류 변경/수집) — 전체 너비
+            drawShopHalf(x, cy, w, bh, '#5b2c6f', '#d2b4de', `🐾 펫 도감 (${petTypeDef().name} · ${game.petOwned.length}/${PET_TYPES.length})`);
+            game.petBookButton = { x, y: cy, w, h: bh };
+            cy += bh + 16;
 
             ctx.fillStyle = '#ffd700';
             ctx.font = 'bold 16px Arial';
@@ -5292,6 +5546,34 @@
             ctx.fillText(`⏳ 경험치 던전  ${mmss}  (+${game.dungeonExp} EXP)`, canvas.width / 2, y + h / 2);
         }
 
+        // 🗼 무한의 탑 HUD (현재층 + 최고층 + 나가기)
+        function drawTowerHUD() {
+            if (!game.inTower) return;
+            const w = 320, h = 58, x = canvas.width / 2 - w / 2, y = 44;
+            ctx.fillStyle = 'rgba(91,44,111,0.92)'; ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#b388ff'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(`🗼 무한의 탑  ${game.towerLevel}층  (최고 ${game.towerBest}층)`, x + w / 2, y + 17);
+            const bw = 150, bh = 22, bx = x + w / 2 - bw / 2, by = y + 30;
+            ctx.fillStyle = '#922b21'; ctx.fillRect(bx, by, bw, bh);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 12px Arial';
+            ctx.fillText('나가기 (기록 유지)', bx + bw / 2, by + bh / 2);
+            game.towerExitButton = { x: bx, y: by, w: bw, h: bh };
+        }
+        // 🌅 일일 보스 HUD (체력 표시)
+        function drawDailyBossHUD() {
+            if (!game.dailyBoss) return;
+            const db = game.dailyBoss;
+            const w = 360, h = 38, x = canvas.width / 2 - w / 2, y = 8;
+            ctx.fillStyle = 'rgba(150,80,20,0.9)'; ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#ffb74d'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+            const ratio = Math.max(0, db.hp / db.maxHp);
+            ctx.fillStyle = '#3a2410'; ctx.fillRect(x + 10, y + 22, w - 20, 8);
+            ctx.fillStyle = '#ff9800'; ctx.fillRect(x + 10, y + 22, (w - 20) * ratio, 8);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            ctx.fillText(`🌅 일일 보스  ${Math.ceil(db.hp).toLocaleString()} / ${db.maxHp.toLocaleString()}`, canvas.width / 2, y + 4);
+        }
+
         // 훈장 던전 HUD (남은 시간 + 보유 훈장 조각)
         function drawMedalDungeonHUD() {
             if (!game.inMedalDungeon) return;
@@ -5444,7 +5726,7 @@
 
                 // 퀘스트 보상 받을 수 있으면 빨간 알림 배지
                 if (b.id === 'quest') {
-                    const n = questClaimableCount();
+                    const n = questClaimableCount() + weeklyClaimableCount();
                     if (n > 0) {
                         ctx.fillStyle = '#e74c3c';
                         ctx.beginPath(); ctx.arc(x + bw - 6, y0 + 6, 9, 0, Math.PI * 2); ctx.fill();
@@ -5774,11 +6056,16 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
             ctx.fillText('📜 퀘스트', canvas.width / 2, winY + 8);
-            const claimable = questClaimableCount();
+            const isW = game.questTab === 'weekly';
+            const LIST = isW ? WEEKLY_QUESTS : QUESTS;
+            const progFn = isW ? weeklyProgress : questProgress;
+            const doneFn = isW ? weeklyDone : questDone;
+            const canFn = isW ? weeklyClaimable : questClaimable;
+            const claimable = isW ? weeklyClaimableCount() : questClaimableCount();
             ctx.fillStyle = '#ffd700';
             ctx.font = 'bold 13px Arial';
             ctx.fillText(`코인 ${game.coins.toLocaleString()}🪙   📜${game.scrolls}   🔮${game.cubes}` +
-                (claimable ? `      ✨ 받을 보상 ${claimable}개!` : ''), canvas.width / 2, winY + 36);
+                (claimable ? `      ✨ 받을 보상 ${claimable}개!` : ''), canvas.width / 2, winY + 34);
 
             const cx = winX + winW - 38, cy = winY + 10;
             ctx.fillStyle = '#c0392b';
@@ -5789,21 +6076,36 @@
             ctx.fillText('✕', cx + 13, cy + 14);
             game.questButtons.push({ x: cx, y: cy, w: 26, h: 26, action: 'close' });
 
+            // 탭 (일반 / 주간)
+            const tabW = 120, tabH = 28, tabY = winY + 52;
+            [['normal', '📜 일반'], ['weekly', '📅 주간']].forEach((t, ti) => {
+                const tx = winX + winW / 2 - tabW - 8 + ti * (tabW + 16);
+                const on = game.questTab === t[0];
+                ctx.fillStyle = on ? '#27ae60' : 'rgba(255,255,255,0.06)';
+                ctx.fillRect(tx, tabY, tabW, tabH);
+                ctx.strokeStyle = on ? '#2ecc71' : '#555'; ctx.lineWidth = 2; ctx.strokeRect(tx, tabY, tabW, tabH);
+                ctx.fillStyle = on ? '#fff' : '#aaa'; ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                const badge = (t[0] === 'weekly' && weeklyClaimableCount()) ? ' ●' : '';
+                ctx.fillText(t[1] + badge, tx + tabW / 2, tabY + tabH / 2);
+                game.questButtons.push({ x: tx, y: tabY, w: tabW, h: tabH, action: 'qtab', tab: t[0] });
+            });
+
             const cols = 2, rows = 4, PER_PAGE_Q = cols * rows;
-            const totalPages = Math.ceil(QUESTS.length / PER_PAGE_Q);
+            const totalPages = Math.max(1, Math.ceil(LIST.length / PER_PAGE_Q));
             if (game.questPage >= totalPages) game.questPage = totalPages - 1;
             if (game.questPage < 0) game.questPage = 0;
             const pageStart = game.questPage * PER_PAGE_Q;
-            const pageQuests = QUESTS.slice(pageStart, pageStart + PER_PAGE_Q);
+            const pageQuests = LIST.slice(pageStart, pageStart + PER_PAGE_Q);
             const gap = 10, navH = 40;
-            const gridX = winX + 18, gridY = winY + 60;
+            const gridX = winX + 18, gridY = winY + 92;
             const cellW = (winW - 18 * 2 - gap) / cols;
-            const cellH = (winH - 60 - 14 - navH - (rows - 1) * gap) / rows;
+            const cellH = (winH - 92 - 14 - navH - (rows - 1) * gap) / rows;
 
             pageQuests.forEach((q, i) => {
                 const col = i % cols, row = Math.floor(i / cols);
                 const x = gridX + col * (cellW + gap), y = gridY + row * (cellH + gap);
-                const prog = questProgress(q), done = questDone(q), can = questClaimable(q);
+                const prog = progFn(q), done = doneFn(q), can = canFn(q);
 
                 ctx.fillStyle = done ? 'rgba(40,60,40,0.55)' : (can ? 'rgba(39,174,96,0.22)' : 'rgba(255,255,255,0.05)');
                 ctx.fillRect(x, y, cellW, cellH);
@@ -5851,7 +6153,7 @@
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(done ? '완료' : (can ? '🎁 보상 받기' : '진행 중'), btX + btW / 2, btY + btH / 2);
-                if (can) game.questButtons.push({ x: btX, y: btY, w: btW, h: btH, action: 'claim', id: q.id });
+                if (can) game.questButtons.push({ x: btX, y: btY, w: btW, h: btH, action: isW ? 'claimW' : 'claim', id: q.id });
             });
 
             // 페이지 네비게이션
@@ -7053,8 +7355,8 @@
             ctx.fillText('✕', ccx + cs / 2, ccy + cs / 2 + 1);
             game.menuButtons.push({ x: ccx, y: ccy, w: cs, h: cs, action: 'close' });
 
-            // 탭
-            const tw = 98, th = 34, tgap = 5, tx0 = px + 20, ty = py + 16;
+            // 탭 (6개가 닫기 버튼과 안 겹치게 폭 축소)
+            const tw = 90, th = 34, tgap = 4, tx0 = px + 18, ty = py + 16;
             MENU_TABS.forEach((t, i) => {
                 const tx = tx0 + i * (tw + tgap);
                 const on = game.menuTab === t.tab;
@@ -7499,6 +7801,74 @@
             ctx.fillText(lineStr, x, y);
         }
 
+        // ============================================================
+        //  🐾 펫 도감 (종류 변경/수집)
+        // ============================================================
+        function buyNotePet() {
+            if (game.petOwned.includes('note')) { floatMsg('이미 보유한 펫이에요', '#ff6b6b'); return; }
+            if (game.musicNotes < NOTE_PET_COST) { floatMsg('🎵 음표 부족!', '#ff6b6b'); return; }
+            game.musicNotes -= NOTE_PET_COST;
+            acquirePet('note');  // 보유목록 추가 + 안내 + 저장
+        }
+        function equipPet(id) {
+            if (!game.petOwned.includes(id)) return;
+            game.petType = id;
+            const p = PET_TYPES.find(x => x.id === id);
+            if (p) floatMsg(`🐾 ${p.name} 장착!`, '#d2b4de');
+            saveProgress();
+        }
+        function drawPetBook() {
+            if (!game.showPetBook) return;
+            const W = canvas.width, H = canvas.height;
+            ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, W, H);
+            const bw = 620, bh = 540, bx = (W - bw) / 2, by = (H - bh) / 2;
+            ctx.fillStyle = '#1a1430'; ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = '#b388ff'; ctx.lineWidth = 3; ctx.strokeRect(bx, by, bw, bh);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            ctx.fillStyle = '#d2b4de'; ctx.font = 'bold 24px Arial';
+            ctx.fillText('🐾 펫 도감', W / 2, by + 14);
+            ctx.fillStyle = '#aaa'; ctx.font = '13px Arial';
+            ctx.fillText(`수집 ${game.petOwned.length}/${PET_TYPES.length} · 보유한 펫을 선택해 장착`, W / 2, by + 44);
+            game.petBookButtons = [];
+            PET_TYPES.forEach((p, i) => {
+                const cy = by + 76 + i * 64;
+                const owned = game.petOwned.includes(p.id);
+                const active = game.petType === p.id;
+                ctx.fillStyle = active ? 'rgba(179,136,255,0.18)' : (owned ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.25)');
+                ctx.fillRect(bx + 20, cy, bw - 40, 54);
+                ctx.strokeStyle = active ? '#b388ff' : (owned ? '#666' : '#333'); ctx.lineWidth = active ? 2 : 1; ctx.strokeRect(bx + 20, cy, bw - 40, 54);
+                ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                ctx.globalAlpha = owned ? 1 : 0.35; ctx.font = '32px Arial';
+                ctx.fillText(p.icon, bx + 40, cy + 28); ctx.globalAlpha = 1;
+                ctx.fillStyle = owned ? '#fff' : '#888'; ctx.font = 'bold 17px Arial';
+                ctx.fillText(p.name + (owned ? '' : ' 🔒'), bx + 88, cy + 17);
+                ctx.fillStyle = owned ? '#cfe8ff' : '#999'; ctx.font = '12px Arial';
+                ctx.fillText(owned ? p.desc : (p.buyNotes ? ('구매: ' + p.desc) : ('잠금 해제: ' + p.unlock)), bx + 88, cy + 38);
+                const bW = 108, bH = 34, bX = bx + bw - 20 - bW - 12, bY = cy + 10;
+                if (active) {
+                    ctx.fillStyle = '#5b2c6f'; ctx.fillRect(bX, bY, bW, bH);
+                    ctx.fillStyle = '#d2b4de'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center'; ctx.fillText('장착중', bX + bW / 2, bY + bH / 2); ctx.textAlign = 'left';
+                } else if (owned) {
+                    ctx.fillStyle = '#2980b9'; ctx.fillRect(bX, bY, bW, bH);
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center'; ctx.fillText('장착', bX + bW / 2, bY + bH / 2); ctx.textAlign = 'left';
+                    game.petBookButtons.push({ x: bX, y: bY, w: bW, h: bH, action: 'equip', id: p.id });
+                } else if (p.buyNotes) {
+                    // 🎵 음표펫: 음표로 구매
+                    const ok = game.musicNotes >= p.buyNotes;
+                    ctx.fillStyle = ok ? '#27ae60' : '#7f3b3b'; ctx.fillRect(bX, bY, bW, bH);
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center'; ctx.fillText('구매 🎵' + p.buyNotes, bX + bW / 2, bY + bH / 2); ctx.textAlign = 'left';
+                    game.petBookButtons.push({ x: bX, y: bY, w: bW, h: bH, action: 'buyNotePet' });
+                } else {
+                    ctx.fillStyle = '#333'; ctx.fillRect(bX, bY, bW, bH);
+                    ctx.fillStyle = '#888'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center'; ctx.fillText('미보유', bX + bW / 2, bY + bH / 2); ctx.textAlign = 'left';
+                }
+            });
+            const cW = 150, cH = 38, cX = W / 2 - cW / 2, cY = by + bh - 48;
+            ctx.fillStyle = '#555'; ctx.fillRect(cX, cY, cW, cH);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('닫기', cX + cW / 2, cY + cH / 2);
+            game.petBookButtons.push({ x: cX, y: cY, w: cW, h: cH, action: 'close' });
+        }
+
         // 게임 루프
         function gameLoop() {
             update();
@@ -7551,6 +7921,8 @@
                 drawHomeUI();
                 drawDungeonHUD();
                 drawMedalDungeonHUD();
+                drawTowerHUD();
+                drawDailyBossHUD();
                 drawRaidHUD();
                 drawZoneClearMsg();
                 drawDeathMsg();
@@ -7565,6 +7937,7 @@
             drawAttendUI();
             drawDailyShopUI();
             drawStoryUI();
+            drawPetBook();
             requestAnimationFrame(gameLoop);
         }
 
@@ -7825,6 +8198,22 @@
             floatMsg('🎵 음표공격 습득! [T] 키로 사용', '#ff9be3');
             saveProgress();
         }
+        const SCI_SKIN_COST = 50;                 // ✨ 과학자 음표 스킨 가격 (음표)
+        function buySciSkin() {
+            if (game.boughtSciSkin) { floatMsg('이미 구매한 스킨이에요', '#ff6b6b'); return; }
+            if (game.musicNotes < SCI_SKIN_COST) { floatMsg('🎵 음표 부족!', '#ff6b6b'); return; }
+            game.musicNotes -= SCI_SKIN_COST;
+            game.boughtSciSkin = true;
+            game.equippedSciSkin = true;                 // 사면 바로 장착
+            floatMsg('✨ 과학자 음표 스킨 획득! (과학자일 때 적용)', '#ff9be3');
+            saveProgress();
+        }
+        function toggleSciSkin() {
+            if (!game.boughtSciSkin) return;
+            game.equippedSciSkin = !game.equippedSciSkin;
+            floatMsg(game.equippedSciSkin ? '✨ 스킨 장착!' : '기본 외형으로 변경', '#ff9be3');
+            saveProgress();
+        }
         // === 🎵 음표공격 스킬 (글로벌, [T] 키) — 300%, 사냥 중인 모든 적 타격. 마이크 장착 시 2배 ===
         const NOTESKILL_MULT = 3;       // 300%
         const NOTESKILL_MANA = 25;
@@ -7843,7 +8232,8 @@
             if (game.monsters.length === 0) return;
             char.stats.mana -= manaCost;
             const cdReduce = Math.min(GEM_CD_CAP, gemBonus('cooldown'));
-            game.skillCooldowns['note'] = Math.round(NOTESKILL_CD * (1 - cdReduce / 100));
+            const petCdMult = (game.petType === 'note') ? 0.4 : 1; // 🎵 음표펫 장착 시 쿨타임 60%↓
+            game.skillCooldowns['note'] = Math.round(NOTESKILL_CD * (1 - cdReduce / 100) * petCdMult);
             char.isAttacking = true; char.attackCounter = char.attackDuration;
             const x2 = mikeEquipped();
             const raw = effAttack() * NOTESKILL_MULT * (x2 ? 2 : 1);
@@ -7973,7 +8363,7 @@
                 rgBtn((W - btnW * 2 - gapB) / 2, byb, btnW, btnH, rg.state === 'intro' ? '▶ 시작하기' : '↻ 다시하기', '#7CFC8A', 'start', '#062');
                 rgBtn((W - btnW * 2 - gapB) / 2 + btnW + gapB, byb, btnW, btnH, '🛒 한정상점', '#e84393', 'shop');
             } else if (rg.state === 'shop') {
-                const bw = 620, bh = 380, bx = (W - bw) / 2, by = (H - bh) / 2;
+                const bw = 620, bh = 500, bx = (W - bw) / 2, by = (H - bh) / 2;
                 ctx.fillStyle = 'rgba(20,16,40,0.98)'; ctx.fillRect(bx, by, bw, bh);
                 ctx.strokeStyle = '#e84393'; ctx.lineWidth = 3; ctx.strokeRect(bx, by, bw, bh);
                 ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -8009,6 +8399,30 @@
                 drawCard(by + 78, '🎤 마이크 (무기)', '공격력 ' + MIKE_ATK + ' · 잠재 [음표공격 데미지 2배] 고정', '※ 잠재능력 재설정 불가 · 평생 1회만 구매', MIKE_COST, game.boughtMike, 'buyMike');
                 drawCard(by + 198, '🎵 음표공격 (스킬) [T]', '데미지 300% · 사냥 중인 모든 적을 한 번에 타격', '※ 마이크 장착 시 데미지 2배 · 1회만 구매', NOTESKILL_COST, game.hasNoteSkill, 'buyNote');
 
+                // ✨ 과학자 음표 스킨 카드 (구매 후 장착/해제 토글)
+                {
+                    const scy = by + 318;
+                    ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(cardX, scy, cardW, 110);
+                    ctx.strokeStyle = '#b388ff'; ctx.lineWidth = 1; ctx.strokeRect(cardX, scy, cardW, 110);
+                    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 19px Arial'; ctx.fillText('✨ 과학자 음표 스킨 (외형)', cardX + 16, scy + 12);
+                    ctx.fillStyle = '#cfe8ff'; ctx.font = '13px Arial'; ctx.fillText('과학자 캐릭터 외형을 음표 스킨으로 변경', cardX + 16, scy + 42);
+                    ctx.fillStyle = '#aaa'; ctx.fillText('※ 과학자 직업에만 적용 · 언제든 장착/해제', cardX + 16, scy + 62);
+                    const bW2 = 150, bH2 = 40, bX2 = cardX + cardW - bW2 - 14, bY2 = scy + 35;
+                    if (!game.boughtSciSkin) {
+                        const ok = game.musicNotes >= SCI_SKIN_COST;
+                        ctx.fillStyle = ok ? '#27ae60' : '#7f3b3b'; ctx.fillRect(bX2, bY2, bW2, bH2);
+                        ctx.fillStyle = '#fff'; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText('구매  🎵' + SCI_SKIN_COST, bX2 + bW2 / 2, bY2 + bH2 / 2);
+                        rg.buttons.push({ x: bX2, y: bY2, w: bW2, h: bH2, act: 'buySciSkin' });
+                    } else {
+                        ctx.fillStyle = game.equippedSciSkin ? '#2980b9' : '#555'; ctx.fillRect(bX2, bY2, bW2, bH2);
+                        ctx.fillStyle = '#fff'; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(game.equippedSciSkin ? '장착중 ✔ (해제)' : '장착하기', bX2 + bW2 / 2, bY2 + bH2 / 2);
+                        rg.buttons.push({ x: bX2, y: bY2, w: bW2, h: bH2, act: 'toggleSciSkin' });
+                    }
+                }
+
                 rgBtn(bx + bw / 2 - 90, by + bh - 50, 180, 38, '◀ 뒤로', '#555', 'back');
             }
         }
@@ -8018,6 +8432,8 @@
         loadCharacter();
         initMonsters();
         checkAttendance(); // 📅 새 날짜면 출석 보상 + 팝업
+        checkWeeklyReset(); // 📅 새 주면 주간 퀘스트 리셋
+        checkPetUnlocks(); // 🐾 기존 진행도로 이미 해금된 펫 반영
         gameLoop();
         showBurningEventBanner();
         initOnlineRank(); // 온라인 랭킹 (설정돼 있으면 연결, 아니면 무시)
