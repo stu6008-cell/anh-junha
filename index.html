@@ -1519,8 +1519,8 @@
                 this.hp = opts.hp || 50;
                 this.maxHp = this.hp;
                 this.damage = opts.damage || 10;       // 플레이어에게 주는 피해
-                this.coinReward = opts.coinReward || 10; // 처치 시 코인
-                this.expReward = opts.expReward || (this.isBoss ? 300 : 25);
+                this.coinReward = opts.coinReward ?? 10; // 처치 시 코인 (?? : 던전/보스의 0이 10으로 둔갑 방지)
+                this.expReward = opts.expReward ?? (this.isBoss ? 300 : 25); // ?? : 0 경험치(훈장던전)가 둔갑 방지
             }
 
             update(playerX, playerY) {
@@ -2155,7 +2155,7 @@
             if (!game.inExpDungeon && !game.inMedalDungeon) game.totalKills = (game.totalKills || 0) + 1;
 
             // 경험치 획득 (경험치 보석 보너스 + 1000레벨↑ 2배 + 🔥버닝 2배 적용)
-            const expReward = Math.round((monster.expReward || 25) * (1 + gemBonus('exp') / 100) * expGainMult() * burningExpMult());
+            const expReward = Math.round((monster.expReward ?? 25) * (1 + gemBonus('exp') / 100) * expGainMult() * burningExpMult());
             game.character.stats.exp += expReward;
 
             // 코인 획득 (?? 사용: 던전 몹의 0코인이 10으로 둔갑하지 않게) — 🔥버닝 1.5배
@@ -2535,7 +2535,9 @@
         // 현재 캐릭터 식별 키 (생성 시각 기준, 새 캐릭터면 진행상황 초기화됨)
         function getCharKey() {
             const saved = localStorage.getItem('currentCharacter');
-            return saved ? (JSON.parse(saved).createdAt || 'default') : 'default';
+            if (!saved) return 'default';
+            try { return JSON.parse(saved).createdAt || 'default'; }
+            catch (e) { return 'default'; } // 손상된 저장값이어도 게임이 멈추지 않게
         }
 
         // 게임 진행 상황 저장
@@ -2634,8 +2636,9 @@
         // 캐릭터 로드
         function loadCharacter() {
             const saved = localStorage.getItem('currentCharacter');
-            if (saved) {
-                const data = JSON.parse(saved);
+            let data = null;
+            if (saved) { try { data = JSON.parse(saved); } catch (e) { data = null; } } // 손상돼도 기본 캐릭터로 폴백
+            if (data) {
                 document.getElementById('charName').textContent = data.name;
                 loadImages(data.class);
 
@@ -2657,8 +2660,9 @@
 
             // 진행 상황 불러오기 (같은 캐릭터일 때만)
             const progressRaw = localStorage.getItem('gameProgress');
-            if (progressRaw) {
-                const progress = JSON.parse(progressRaw);
+            let progress = null;
+            if (progressRaw) { try { progress = JSON.parse(progressRaw); } catch (e) { progress = null; } } // 손상돼도 진행복원만 건너뜀
+            if (progress) {
                 if (progress.charKey === getCharKey()) {
                     Object.assign(game.character.stats, progress.stats);
                     if (typeof progress.x === 'number') game.character.x = progress.x;
@@ -5991,12 +5995,13 @@
             const now = Date.now();
             if (score <= _lastSubmitScore) return;
             if (now - _lastSubmit < 20000) return;
-            _lastSubmit = now; _lastSubmitScore = score;
+            _lastSubmit = now; // 20초 쓰로틀은 즉시 적용(실패해도 API 연타 방지)
             fetch(RANK_API, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify(rankEntry())
-            }).then(() => loadOnlineRanking()).catch(() => {});
+            }).then(() => { _lastSubmitScore = score; loadOnlineRanking(); }) // 성공했을 때만 갱신 → 실패 시 다음에 재전송
+              .catch(() => {});
         }
 
         // ============================================================
@@ -7212,7 +7217,7 @@
         const RG_APPROACH = 1500;                 // 노트가 위에서 판정선까지 내려오는 시간(ms)
         const RG_SONG_LEN = 48000;                // 채보 길이(ms)
         const RG_PERFECT = 55, RG_GOOD = 120;     // 판정 윈도우(ms)
-        const RG_MISS_PENALTY = 150;              // MISS 시 감점(점수는 0 미만으로 안 내려감)
+        const RG_MISS_PENALTY = 60;               // MISS 시 감점(점수는 0 미만으로 안 내려감)
 
         const rg = {
             state: 'intro',  // intro | play | result
@@ -7282,7 +7287,12 @@
                 else { rg.score += 120 + rg.combo; rg.hits.good++; rgJudge('GOOD', '#4dd2ff'); }
                 rg.combo++; if (rg.combo > rg.maxCombo) rg.maxCombo = rg.combo;
             } else {
-                rg.combo = 0; rg.score = Math.max(0, rg.score - RG_MISS_PENALTY); rgJudge('MISS', '#ff5a7a'); // 헛침: 콤보 끊김 + 감점
+                // 헛침: 콤보 끊김 + 감점 1회 + 통계 반영. 근처 살아있는 노트는 소비시켜 나중에 또 감점되지 않게
+                rg.combo = 0;
+                rg.score = Math.max(0, rg.score - RG_MISS_PENALTY);
+                rg.hits.miss++;
+                if (best && bestD <= RG_GOOD * 2 && !best.hit && !best.dead) best.dead = true;
+                rgJudge('MISS', '#ff5a7a');
             }
         }
         function updateRhythm() {
@@ -7303,8 +7313,8 @@
             if (rg.score > rgBest) { rgBest = rg.score; localStorage.setItem('rhythmBest', String(rgBest)); }
             rg.coinReward = Math.round(rg.score * 0.5);
             game.coins += rg.coinReward;
-            // 🎵 음표 재화 — 할 때마다 획득 (점수에 비례, 최소 3개)
-            rg.notesEarned = Math.max(3, Math.floor(rg.score / 1000));
+            // 🎵 음표 재화 — 이벤트 기간에만 획득 (점수에 비례, 최소 2개). 종료 후엔 점수도전만 가능
+            rg.notesEarned = rhythmEventActive() ? Math.max(2, Math.floor(rg.score / 1600)) : 0;
             game.musicNotes += rg.notesEarned;
             saveProgress();
         }
@@ -7345,7 +7355,7 @@
         // === 🎵 음표공격 스킬 (글로벌, [T] 키) — 300%, 사냥 중인 모든 적 타격. 마이크 장착 시 2배 ===
         const NOTESKILL_MULT = 3;       // 300%
         const NOTESKILL_MANA = 25;
-        const NOTESKILL_CD = 0;         // 쿨다운 없음
+        const NOTESKILL_CD = 240;       // 쿨다운 (약 4초, 보석 쿨감 적용됨)
         function noteSkillReady() {
             return game.hasNoteSkill && (game.skillCooldowns['note'] || 0) <= 0 &&
                    game.character.stats.mana >= NOTESKILL_MANA * MANA_COST_MULT;
