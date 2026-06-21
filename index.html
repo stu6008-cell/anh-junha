@@ -492,6 +492,31 @@
             menuTab: 'help',         // 'help' | 'rank' | 'credit' | 'settings'
             menuButtons: [],
             mapPage: 0,
+
+            // === 신규 기능 상태 ===
+            autoHpPotion: false,     // ⚙️ 체력 자동물약 (50% 이하)
+            autoMpPotion: false,     // ⚙️ 마나 자동물약 (30% 이하)
+            comboKills: 0,           // 🔥 연속 처치 콤보 수
+            comboTimer: 0,           // 콤보 유지 타이머 (프레임)
+            maxHit: 0,               // 📊 최고 단일 데미지
+            totalDamageDealt: 0,     // 📊 누적 총 데미지
+            lastAttendDate: '',      // 📅 마지막 출석 날짜 (YYYY-MM-DD)
+            attendStreak: 0,         // 연속 출석일
+            showAttend: false,       // 출석 보상창 열림
+            attendButtons: [],
+            achClaimed: [],          // 🏅 수령한 도전과제 key 목록
+            showAch: false,          // 도전과제창 열림
+            achButtons: [],
+            dailyShopDate: '',       // 🛍️ 랜덤상점 갱신 날짜
+            dailyShopItems: [],      // 랜덤상점 매물 [{kind,cat,rarity,cost,bought}]
+            showDailyShop: false,
+            dailyShopButtons: [],
+            storySeen: [],           // 📖 이미 본 스토리 key 목록 (2막부터)
+            storyActive: false,      // 스토리 컷신 재생 중
+            storyLines: [],          // 현재 컷신 대사 배열
+            storyIndex: 0,           // 현재 대사 인덱스
+            storyButtons: [],
+
             assetLoad: { bgm: false, character: false }
         };
         game.assetLoad.bgm = bgm.readyState >= 4;
@@ -987,6 +1012,21 @@
             return { attack, defense };
         }
 
+        // 🧩 장비 세트효과: 같은 등급 장비를 2개 이상 장착하면 공/방 % 보너스 (등급·개수 비례)
+        function setBonus() {
+            const counts = {};
+            ITEM_CATS.forEach(cat => {
+                const it = game.equipped[cat] ? getItemById(game.equipped[cat]) : null;
+                if (it) counts[it.rarity] = (counts[it.rarity] || 0) + 1;
+            });
+            let pct = 0;
+            for (const r in counts) {
+                const c = counts[r];
+                if (c >= 2) pct += (Number(r) + 1) * (c - 1) * 1.5; // 등급(1~6) × 초과개수 × 1.5%
+            }
+            return Math.round(pct);
+        }
+
         // 장착 장비의 잠재능력 합
         function getPotentialBonus() {
             const b = { atkPct: 0, defPct: 0, bossPct: 0, critRate: 0, critDmg: 0 };
@@ -1000,11 +1040,33 @@
         // 장비 + 잠재(공/방 %) 포함 실제 공격력 / 방어력
         function effAttack() {
             const p = getPotentialBonus();
-            return Math.round((game.character.stats.attack + getEquipBonus().attack) * (1 + (p.atkPct + gemBonus('attack') + passiveBonus('atkPct') + petStatBonus() + homeBonus('atk') + guildBonus('atk') + awaken2Bonus('atkPct') + medalBonus() + medalAbilityBonus('atkPct')) / 100) * (game.awakened ? AWAKEN_ATK_MULT : 1) * (game.awakened2 ? AWAKEN_ATK_MULT : 1));
+            return Math.round((game.character.stats.attack + getEquipBonus().attack) * (1 + (p.atkPct + gemBonus('attack') + passiveBonus('atkPct') + petStatBonus() + homeBonus('atk') + guildBonus('atk') + awaken2Bonus('atkPct') + medalBonus() + medalAbilityBonus('atkPct') + setBonus() + achBonus()) / 100) * (game.awakened ? AWAKEN_ATK_MULT : 1) * (game.awakened2 ? AWAKEN_ATK_MULT : 1));
         }
         function effDefense() {
             const p = getPotentialBonus();
-            return Math.round((game.character.stats.defense + getEquipBonus().defense) * (1 + (p.defPct + gemBonus('defense') + passiveBonus('defPct') + petStatBonus() + homeBonus('def') + guildBonus('def') + awaken2Bonus('defPct') + medalBonus() + medalAbilityBonus('defPct')) / 100));
+            return Math.round((game.character.stats.defense + getEquipBonus().defense) * (1 + (p.defPct + gemBonus('defense') + passiveBonus('defPct') + petStatBonus() + homeBonus('def') + guildBonus('def') + awaken2Bonus('defPct') + medalBonus() + medalAbilityBonus('defPct') + setBonus()) / 100));
+        }
+
+        // === 🏅 도전과제 (달성 시 영구 공격력 % 보너스) ===
+        const ACHIEVEMENTS = [
+            { key: 'kill100',   name: '사냥 입문',     desc: '몬스터 100마리 처치',        atk: 2,  check: () => (game.totalKills || 0) >= 100 },
+            { key: 'kill1000',  name: '사냥꾼',        desc: '몬스터 1,000마리 처치',      atk: 3,  check: () => (game.totalKills || 0) >= 1000 },
+            { key: 'kill10000', name: '학살자',        desc: '몬스터 10,000마리 처치',     atk: 5,  check: () => (game.totalKills || 0) >= 10000 },
+            { key: 'boss50',    name: '보스 헌터',     desc: '보스 50회 처치',             atk: 3,  check: () => (game.bossKills || 0) >= 50 },
+            { key: 'boss500',   name: '보스 군주',     desc: '보스 500회 처치',            atk: 5,  check: () => (game.bossKills || 0) >= 500 },
+            { key: 'server10',  name: '서버의 적',     desc: '서버보스 10회 처치',         atk: 5,  check: () => (game.serverBossKills || 0) >= 10 },
+            { key: 'star100',   name: '강화의 길',     desc: '스타포스 누적 100회',        atk: 3,  check: () => (game.totalStarforce || 0) >= 100 },
+            { key: 'pull500',   name: '뽑기 중독',     desc: '장비 뽑기 500회',            atk: 3,  check: () => (game.totalPulls || 0) >= 500 },
+            { key: 'attend7',   name: '성실함',        desc: '7일 연속 출석',              atk: 3,  check: () => (game.attendStreak || 0) >= 7 },
+            { key: 'dmg1m',     name: '한 방의 미학',  desc: '단일 데미지 1,000,000 달성', atk: 5,  check: () => (game.maxHit || 0) >= 1000000 }
+        ];
+        function achBonus() { let s = 0; ACHIEVEMENTS.forEach(a => { if (game.achClaimed.includes(a.key)) s += a.atk; }); return s; }
+        function claimAch(key) {
+            const a = ACHIEVEMENTS.find(x => x.key === key);
+            if (!a || game.achClaimed.includes(key) || !a.check()) return;
+            game.achClaimed.push(key);
+            floatMsg(`🏅 도전과제 [${a.name}] 달성! 공격력 +${a.atk}%`, '#ffd166');
+            saveProgress();
         }
 
         // === 보석 헬퍼/로직 ===
@@ -1630,6 +1692,16 @@
             // 이름 입력 중에는 게임 조작 무시
             if (game.naming) return;
 
+            // 📖 스토리 컷신: 스페이스/엔터로 다음 대사, Esc로 건너뛰기
+            if (game.storyActive) {
+                if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); advanceStory(); }
+                else if (e.key === 'Escape') { game.storyActive = false; game.story = null; }
+                return;
+            }
+            // 📅 출석창 / 🛍️ 일일상점: Esc로 닫기
+            if (game.showAttend) { if (e.key === 'Escape') game.showAttend = false; return; }
+            if (game.showDailyShop) { if (e.key === 'Escape') game.showDailyShop = false; return; }
+
             // 채팅 창이 열려 있으면 게임 조작 무시 (입력창 타이핑은 그대로 통과)
             if (game.chatOpen) { if (e.key === 'Escape') closeChat(); return; }
 
@@ -1732,6 +1804,32 @@
             const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
             const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
+            // 📖 스토리 컷신 (열려 있으면 최우선 — 아무데나 클릭하면 다음 대사)
+            if (game.storyActive) { advanceStory(); return; }
+
+            // 📅 출석 보상창
+            if (game.showAttend) {
+                for (const b of (game.attendButtons || [])) {
+                    if (clickX >= b.x && clickX <= b.x + b.w && clickY >= b.y && clickY <= b.y + b.h) {
+                        if (b.action === 'close') game.showAttend = false;
+                        return;
+                    }
+                }
+                return;
+            }
+
+            // 🛍️ 일일 랜덤 상점
+            if (game.showDailyShop) {
+                for (const b of (game.dailyShopButtons || [])) {
+                    if (clickX >= b.x && clickX <= b.x + b.w && clickY >= b.y && clickY <= b.y + b.h) {
+                        if (b.action === 'close') game.showDailyShop = false;
+                        else if (b.action === 'buy') buyDailyItem(b.idx);
+                        return;
+                    }
+                }
+                return;
+            }
+
             // 🎵 리듬게임 (열려 있으면 최우선)
             if (game.showRhythm) {
                 for (const b of (rg.buttons || [])) {
@@ -1771,6 +1869,9 @@
                         else if (btn.action === 'bgm') toggleBgm();
                         else if (btn.action === 'resetRank') resetRanking();
                         else if (btn.action === 'rename') askPlayerName();
+                        else if (btn.action === 'claimAch') claimAch(btn.achKey);
+                        else if (btn.action === 'toggleAutoHp') { game.autoHpPotion = !game.autoHpPotion; saveProgress(); }
+                        else if (btn.action === 'toggleAutoMp') { game.autoMpPotion = !game.autoMpPotion; saveProgress(); }
                         return;
                     }
                 }
@@ -1863,6 +1964,7 @@
                         else if (btn.id === 'quest') { game.showQuest = !game.showQuest; if (game.showQuest) game.questPage = 0; game.showShop = false; game.showEvent = false; game.eventTab = null; }
                         else if (btn.id === 'pvp') { openPvp(); }
                         else if (btn.id === 'rhythm') { openRhythm(); }
+                        else if (btn.id === 'daily') { openDailyShop(); }
                         else if (btn.id === 'menu') { game.showMenu = true; game.showEvent = false; game.eventTab = null; game.showShop = false; }
                         return;
                     }
@@ -2117,8 +2219,16 @@
             }
         }
 
+        // 🔥 연속 처치 콤보 설정
+        const COMBO_DURATION = 150;   // 콤보 유지 시간 (프레임, ~2.5초)
+        const COMBO_MAX = 50;         // 코인 보너스가 더 안 오르는 콤보 상한
+        const COMBO_COIN_PER = 0.01;  // 콤보 1당 코인 +1% (최대 +50%)
+
         // 몬스터에게 데미지를 입히고, 처치 시 보상/레벨업 처리
         function damageMonster(monster, damage, color, crit) {
+            // 📊 데미지 통계 (최고 단일타 + 누적)
+            if (damage > game.maxHit) game.maxHit = damage;
+            game.totalDamageDealt += damage;
             // 길드전 무적 보스: 체력 안 깎고 데미지만 누적 (절대 안 죽음)
             if (monster.isRaid) {
                 game.raidDamage += damage;
@@ -2154,12 +2264,18 @@
             // 퀘스트용 처치 카운트 (던전 원킬 파밍은 제외)
             if (!game.inExpDungeon && !game.inMedalDungeon) game.totalKills = (game.totalKills || 0) + 1;
 
+            // 🔥 연속 처치 콤보: 처치할 때마다 +1, 타이머 갱신. 콤보당 코인 보너스(최대 +50%)
+            game.comboKills++;
+            game.comboTimer = COMBO_DURATION;
+            const comboBonus = 1 + Math.min(game.comboKills, COMBO_MAX) * COMBO_COIN_PER; // 1.00 ~ 1.50
+            if (game.comboKills > 0 && game.comboKills % 10 === 0) floatMsg(`🔥 ${game.comboKills} 연속!`, '#ff9f1c');
+
             // 경험치 획득 (경험치 보석 보너스 + 1000레벨↑ 2배 + 🔥버닝 2배 적용)
             const expReward = Math.round((monster.expReward ?? 25) * (1 + gemBonus('exp') / 100) * expGainMult() * burningExpMult());
             game.character.stats.exp += expReward;
 
-            // 코인 획득 (?? 사용: 던전 몹의 0코인이 10으로 둔갑하지 않게) — 🔥버닝 1.5배
-            const coinReward = Math.round((monster.coinReward ?? 10) * burningCoinMult());
+            // 코인 획득 (?? 사용: 던전 몹의 0코인이 10으로 둔갑하지 않게) — 🔥버닝 1.5배 + 콤보 보너스
+            const coinReward = Math.round((monster.coinReward ?? 10) * burningCoinMult() * comboBonus);
             game.coins += coinReward;
 
             // 훈장 던전: 처치 시 훈장 조각 획득 (+ 팝업)
@@ -2588,7 +2704,17 @@
                 medalEnhance: game.medalEnhance,
                 medalAbilities: game.medalAbilities,
                 medalCubes: game.medalCubes,
-                medalShards: game.medalShards
+                medalShards: game.medalShards,
+                autoHpPotion: game.autoHpPotion,
+                autoMpPotion: game.autoMpPotion,
+                maxHit: game.maxHit,
+                totalDamageDealt: game.totalDamageDealt,
+                lastAttendDate: game.lastAttendDate,
+                attendStreak: game.attendStreak,
+                achClaimed: game.achClaimed,
+                dailyShopDate: game.dailyShopDate,
+                dailyShopItems: game.dailyShopItems,
+                storySeen: game.storySeen
             };
             localStorage.setItem('gameProgress', JSON.stringify(progress));
             try { updateRanking(); } catch (e) {}
@@ -2732,6 +2858,17 @@
                     if (typeof progress.petScrolls === 'number') game.petScrolls = progress.petScrolls;
                     if (typeof progress.hpPotions === 'number') game.hpPotions = progress.hpPotions;
                     if (typeof progress.mpPotions === 'number') game.mpPotions = progress.mpPotions;
+                    // 신규 기능 복원
+                    if (progress.autoHpPotion) game.autoHpPotion = true;
+                    if (progress.autoMpPotion) game.autoMpPotion = true;
+                    if (typeof progress.maxHit === 'number') game.maxHit = progress.maxHit;
+                    if (typeof progress.totalDamageDealt === 'number') game.totalDamageDealt = progress.totalDamageDealt;
+                    if (typeof progress.lastAttendDate === 'string') game.lastAttendDate = progress.lastAttendDate;
+                    if (typeof progress.attendStreak === 'number') game.attendStreak = progress.attendStreak;
+                    if (Array.isArray(progress.achClaimed)) game.achClaimed = progress.achClaimed;
+                    if (typeof progress.dailyShopDate === 'string') game.dailyShopDate = progress.dailyShopDate;
+                    if (Array.isArray(progress.dailyShopItems)) game.dailyShopItems = progress.dailyShopItems;
+                    if (Array.isArray(progress.storySeen)) game.storySeen = progress.storySeen;
                     // 보석 복원 (유효한 종류만)
                     if (progress.gemInv && typeof progress.gemInv === 'object') {
                         game.gemInv = {};
@@ -3028,6 +3165,7 @@
             game.showMap = false;
             initMonsters();
             saveProgress();
+            maybeTriggerStory(index); // 📖 2막부터 스토리 컷신
         }
 
         // === 마을 / 마이홈 ===
@@ -3148,7 +3286,8 @@
                 game.character.frameCounter++;
                 if (game.character.frameCounter >= game.character.frameDelay) {
                     game.character.frameCounter = 0;
-                    game.character.frameIndex = (game.character.frameIndex + 1) % 3;
+                    const fcT = sciSkinOn() ? SCI_SKIN_FRAMES : 3;
+                    game.character.frameIndex = (game.character.frameIndex + 1) % fcT;
                 }
             } else {
                 game.character.direction = 'idle';
@@ -3166,10 +3305,14 @@
         // 게임 업데이트
         function update() {
             // 지도/상점/직업선택/집 창이 열려 있으면 게임 일시정지
-            if (game.showMap || game.showShop || game.showQuest || game.selectingJob || game.eventTab || game.showHome || game.showMenu || game.naming || game.pvpOpen || game.chatOpen || game.aucOpen || game.showRhythm) return;
+            if (game.showMap || game.showShop || game.showQuest || game.selectingJob || game.eventTab || game.showHome || game.showMenu || game.naming || game.pvpOpen || game.chatOpen || game.aucOpen || game.showRhythm || game.storyActive || game.showAttend || game.showDailyShop) return;
 
             // 마을에서는 전투 없이 이동만
             if (game.inTown) { updateTown(); return; }
+
+            // ⚙️ 자동 물약: 체력 50% 이하 / 마나 30% 이하면 자동 사용 (물약 있을 때만)
+            if (game.autoHpPotion && game.hpPotions > 0 && game.character.stats.hp < effMaxHp() * 0.5) useHpPotion();
+            if (game.autoMpPotion && game.mpPotions > 0 && game.character.stats.mana < game.character.stats.maxMana * 0.3) useMpPotion();
 
             // 현재 체력이 보석 포함 최대치를 넘지 않게 (보석 해제 시 보정)
             const hpCap = effMaxHp();
@@ -3265,8 +3408,9 @@
 
             // 애니메이션 프레임 업데이트
             if (isMoving) {
-                // 달리기는 걷기 1·2 프레임만(0,1) 반복, 걷기는 1·2·3(0,1,2)
-                const frameCount = isRunning ? 2 : 3;
+                // 달리기는 앞 2프레임만(0,1), 걷기는 전체 (직업 3 / 과학자 스킨 5)
+                const total = sciSkinOn() ? SCI_SKIN_FRAMES : 3;
+                const frameCount = isRunning ? Math.min(2, total) : total;
                 const delay = isRunning ? game.character.runFrameDelay : game.character.frameDelay;
 
                 // 달리기로 전환 시 프레임이 2(인덱스 2)에 멈춰있으면 보정
@@ -3799,9 +3943,37 @@
             drawAmbient(S.deco);
         }
 
+        // ✨ 과학자 전용 음표 스킨 (스프라이트 시트 1장, 가로 5컷). 정지 이미지면 SCI_SKIN_FRAMES를 1로
+        const SCI_SKIN_FRAMES = 5;
+        const SCI_SKIN_TOP = 0.29;   // 위쪽 크롭 (라벨 24~28.5% 아래, 머리 37.5% 위로 여백 확보)
+        const SCI_SKIN_BOT = 0.24;   // 아래쪽 여백 크롭
+        const sciSkinSheet = new Image();
+        sciSkinSheet.src = './과학자 음표스킨.png';
+        function sciSkinOn() { return game.character.job === '과학자' && sciSkinSheet.complete && sciSkinSheet.naturalWidth > 0; }
+
         // 캐릭터 그리기
         function drawCharacter() {
             const char = game.character;
+            // ✨ 과학자 음표 스킨: 시트(가로 5컷)에서 현재 프레임만 잘라 그림 (왼쪽은 좌우반전)
+            if (sciSkinOn()) {
+                const useLeftS = char.facing === 'left';
+                const sx = char.x - game.camera.x, sy = char.y;
+                const fi = (char.direction === 'idle') ? 0 : (char.frameIndex % SCI_SKIN_FRAMES);
+                const fw = sciSkinSheet.naturalWidth / SCI_SKIN_FRAMES;
+                const sTop = sciSkinSheet.naturalHeight * SCI_SKIN_TOP;                  // 라벨 잘라낸 시작 y
+                const fh = sciSkinSheet.naturalHeight * (1 - SCI_SKIN_TOP - SCI_SKIN_BOT); // 캐릭터 영역 높이
+                const scaleAmount = char.isAttacking ? 1 + (1 - char.attackCounter / char.attackDuration) * 0.15 : 1;
+                const w = char.width * scaleAmount, h = char.height * scaleAmount;
+                ctx.save();
+                if (useLeftS) { ctx.translate(sx, 0); ctx.scale(-1, 1); ctx.translate(-sx, 0); }
+                ctx.drawImage(sciSkinSheet, fi * fw, sTop, fw, fh, sx - w / 2, sy - h / 2, w, h);
+                if (char.isAttacking) {
+                    ctx.strokeStyle = `rgba(255, 255, 0, ${0.5 * (char.attackCounter / char.attackDuration)})`;
+                    ctx.lineWidth = 3; ctx.strokeRect(sx - w / 2, sy - h / 2, w, h);
+                }
+                ctx.restore();
+                return;
+            }
             // 방향에 맞는 스프라이트 사용 (left/right 별도 로드 완료)
             const useLeft = char.facing === 'left';
             let frames = useLeft ? char.images.left : char.images.right;
@@ -3824,6 +3996,21 @@
                     ? 1 + (1 - char.attackCounter / char.attackDuration) * 0.15 : 1;
                 const w = char.width * scaleAmount;
                 const h = char.height * scaleAmount;
+
+                // 🌈 무기 오라: 장착 무기 등급 색으로 캐릭터 뒤에 은은한 빛 (레어 이상만)
+                const wpn = game.equipped.weapon ? getItemById(game.equipped.weapon) : null;
+                if (wpn && wpn.rarity >= 1 && RARITIES[wpn.rarity]) {
+                    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+                    const rad = Math.max(w, h) * 0.62;
+                    const g = ctx.createRadialGradient(screenX, screenY, rad * 0.15, screenX, screenY, rad);
+                    g.addColorStop(0, RARITIES[wpn.rarity].color);
+                    g.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.save();
+                    ctx.globalAlpha = 0.28 + 0.22 * pulse;
+                    ctx.fillStyle = g;
+                    ctx.beginPath(); ctx.arc(screenX, screenY, rad, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                }
 
                 ctx.save();
                 if (needsFlip) { ctx.translate(screenX, 0); ctx.scale(-1, 1); ctx.translate(-screenX, 0); }
@@ -5229,6 +5416,7 @@
             { id: 'event', label: '📋 이벤트', color: '#f39c12' },
             { id: 'quest', label: '📜 퀘스트', color: '#27ae60' },
             { id: 'rhythm', label: '🎵 리듬', color: '#e84393' },
+            { id: 'daily', label: '🛍️ 상점', color: '#16a085' },
             { id: 'menu',  label: '☰ 메뉴',  color: '#9b59b6' }
         ];
         function drawUIButtons() {
@@ -5240,7 +5428,7 @@
 
             btns.forEach((b, i) => {
                 const x = x0 + i * (bw + gap);
-                const active = (b.id === 'event' && game.showEvent) || (b.id === 'shop' && game.showShop) || (b.id === 'town' && game.inTown) || (b.id === 'quest' && game.showQuest) || (b.id === 'rhythm' && game.showRhythm) || (b.id === 'menu' && game.showMenu);
+                const active = (b.id === 'event' && game.showEvent) || (b.id === 'shop' && game.showShop) || (b.id === 'town' && game.inTown) || (b.id === 'quest' && game.showQuest) || (b.id === 'rhythm' && game.showRhythm) || (b.id === 'daily' && game.showDailyShop) || (b.id === 'menu' && game.showMenu);
 
                 ctx.fillStyle = active ? b.color : 'rgba(0,0,0,0.7)';
                 ctx.fillRect(x, y0, bw, bh);
@@ -6836,6 +7024,8 @@
 
         const MENU_TABS = [
             { tab: 'help',     label: '📖 설명' },
+            { tab: 'stats',    label: '📊 통계' },
+            { tab: 'ach',      label: '🏅 과제' },
             { tab: 'rank',     label: '🏆 랭킹' },
             { tab: 'credit',   label: '👤 제작자' },
             { tab: 'settings', label: '⚙️ 설정' }
@@ -6864,7 +7054,7 @@
             game.menuButtons.push({ x: ccx, y: ccy, w: cs, h: cs, action: 'close' });
 
             // 탭
-            const tw = 130, th = 34, tgap = 8, tx0 = px + 20, ty = py + 16;
+            const tw = 98, th = 34, tgap = 5, tx0 = px + 20, ty = py + 16;
             MENU_TABS.forEach((t, i) => {
                 const tx = tx0 + i * (tw + tgap);
                 const on = game.menuTab === t.tab;
@@ -6887,11 +7077,76 @@
             else {
                 if (vs) vs.style.display = 'none';
                 if (game.menuTab === 'help') drawMenuHelp(x, cy);
+                else if (game.menuTab === 'stats') drawMenuStats(px, py, pw, ph, cy, x);
+                else if (game.menuTab === 'ach') drawMenuAch(px, py, pw, ph, cy, x);
                 else if (game.menuTab === 'rank') drawMenuRank(px, py, pw, ph, cy, x);
                 else if (game.menuTab === 'credit') drawMenuCredit(px, py, pw, ph, cy);
             }
         }
 
+        // 📊 통계 탭
+        function drawMenuStats(px, py, pw, ph, cy, x) {
+            const A = UI.accent, T = UI.text, D = UI.dim;
+            const rows = [
+                ['⚔️ 현재 공격력', effAttack().toLocaleString()],
+                ['🛡️ 현재 방어력', effDefense().toLocaleString()],
+                ['💥 최고 단일 데미지', (game.maxHit || 0).toLocaleString()],
+                ['📈 누적 총 데미지', Math.round(game.totalDamageDealt || 0).toLocaleString()],
+                ['💀 몬스터 처치', (game.totalKills || 0).toLocaleString()],
+                ['👑 보스 처치', (game.bossKills || 0).toLocaleString()],
+                ['🌐 서버보스 처치', (game.serverBossKills || 0).toLocaleString()],
+                ['🔥 현재 콤보', (game.comboKills || 0).toLocaleString()],
+                ['🧩 세트효과 보너스', '공·방 +' + setBonus() + '%'],
+                ['🏅 도전과제 보너스', '공격력 +' + achBonus() + '%']
+            ];
+            let ly = cy + 6;
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            rows.forEach((r, i) => {
+                ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)';
+                ctx.fillRect(x - 8, ly - 14, pw - 44, 30);
+                ctx.fillStyle = T; ctx.font = UI.headFont; ctx.fillText(r[0], x, ly);
+                ctx.fillStyle = A; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'right';
+                ctx.fillText(r[1], px + pw - 36, ly);
+                ctx.textAlign = 'left';
+                ly += 34;
+            });
+        }
+        // 🏅 도전과제 탭
+        function drawMenuAch(px, py, pw, ph, cy, x) {
+            const A = UI.accent, T = UI.text, D = UI.dim;
+            let ly = cy + 4;
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ACHIEVEMENTS.forEach(a => {
+                const done = game.achClaimed.includes(a.key);
+                const can = !done && a.check();
+                ctx.fillStyle = done ? 'rgba(46,204,113,0.10)' : (can ? 'rgba(255,209,102,0.12)' : 'rgba(255,255,255,0.04)');
+                ctx.fillRect(x - 8, ly - 15, pw - 44, 34);
+                ctx.fillStyle = done ? '#7CFC8A' : T; ctx.font = UI.headFont;
+                ctx.fillText(a.name + '  (+' + a.atk + '% 공격력)', x, ly - 3);
+                ctx.fillStyle = D; ctx.font = '12px Arial';
+                ctx.fillText(a.desc, x, ly + 12);
+                // 우측 상태/수령 버튼
+                const bw = 96, bh = 26, bx = px + pw - 36 - bw, by = ly - 13;
+                if (done) {
+                    ctx.fillStyle = '#2e7d4f'; ctx.fillRect(bx, by, bw, bh);
+                    ctx.fillStyle = '#cfe8d4'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
+                    ctx.fillText('달성 ✔', bx + bw / 2, by + bh / 2);
+                    ctx.textAlign = 'left';
+                } else if (can) {
+                    ctx.fillStyle = '#27ae60'; ctx.fillRect(bx, by, bw, bh);
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
+                    ctx.fillText('수령', bx + bw / 2, by + bh / 2);
+                    ctx.textAlign = 'left';
+                    game.menuButtons.push({ x: bx, y: by, w: bw, h: bh, action: 'claimAch', achKey: a.key });
+                } else {
+                    ctx.fillStyle = '#555'; ctx.fillRect(bx, by, bw, bh);
+                    ctx.fillStyle = '#aaa'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
+                    ctx.fillText('미달성', bx + bw / 2, by + bh / 2);
+                    ctx.textAlign = 'left';
+                }
+                ly += 38;
+            });
+        }
         function drawMenuHelp(x, y) {
             const A = UI.accent, T = UI.text, D = UI.dim;
             const lines = [
@@ -7029,6 +7284,219 @@
             ctx.fillStyle = UI.text; ctx.font = UI.headFont; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText('✏️ 이름 바꾸기', rbx + rbw / 2, rby + rbh / 2);
             game.menuButtons.push({ x: rbx, y: rby, w: rbw, h: rbh, action: 'rename' });
+
+            // ⚙️ 자동 물약 토글 2개 (체력 50% / 마나 30% 이하 자동 사용)
+            const autoRow = (labelTxt, on, action, ry) => {
+                ctx.fillStyle = UI.accent; ctx.font = UI.headFont; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                ctx.fillText(labelTxt, x, ry + 17);
+                const aw = 120, ah = 34, ax = x + 200, ay = ry;
+                ctx.fillStyle = on ? 'rgba(46,204,113,0.85)' : 'rgba(255,255,255,0.06)';
+                ctx.fillRect(ax, ay, aw, ah);
+                ctx.strokeStyle = on ? '#2ecc71' : UI.dim; ctx.lineWidth = 2; ctx.strokeRect(ax, ay, aw, ah);
+                ctx.fillStyle = UI.text; ctx.font = UI.headFont; ctx.textAlign = 'center';
+                ctx.fillText(on ? '✅ 켜짐' : '⬜ 꺼짐', ax + aw / 2, ay + ah / 2);
+                ctx.textAlign = 'left';
+                game.menuButtons.push({ x: ax, y: ay, w: aw, h: ah, action });
+            };
+            autoRow('🧪 체력 자동물약 (50%)', game.autoHpPotion, 'toggleAutoHp', cy + 278);
+            autoRow('🔷 마나 자동물약 (30%)', game.autoMpPotion, 'toggleAutoMp', cy + 318);
+        }
+
+        // ============================================================
+        //  📅 일일 출석 보상
+        // ============================================================
+        function todayStr() { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+        function dateStrOffset(off) { const d = new Date(); d.setDate(d.getDate() + off); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+        const ATTEND_REWARDS = [
+            { label: '🪙 코인 5,000',            give: () => { game.coins += 5000; } },
+            { label: '📜 주문서 2장',             give: () => { game.scrolls += 2; } },
+            { label: '🧪 체력물약 5개',           give: () => { game.hpPotions += 5; } },
+            { label: '🪙 코인 15,000',           give: () => { game.coins += 15000; } },
+            { label: '🧊 큐브 1개',               give: () => { game.cubes += 1; } },
+            { label: '🔷 마나물약 5개',           give: () => { game.mpPotions += 5; } },
+            { label: '🪙 코인 50,000 + 📜 주문서 5장', give: () => { game.coins += 50000; game.scrolls += 5; } }
+        ];
+        function checkAttendance() {
+            const today = todayStr();
+            if (game.lastAttendDate === today) return;             // 오늘 이미 받음
+            game.attendStreak = (game.lastAttendDate === dateStrOffset(-1)) ? (game.attendStreak + 1) : 1; // 어제 받았으면 연속
+            game.lastAttendDate = today;
+            ATTEND_REWARDS[(game.attendStreak - 1) % 7].give();
+            game.showAttend = true;
+            saveProgress();
+        }
+        function drawAttendUI() {
+            if (!game.showAttend) return;
+            const W = canvas.width, H = canvas.height;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+            const bw = 460, bh = 250, bx = (W - bw) / 2, by = (H - bh) / 2;
+            ctx.fillStyle = '#161628'; ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 3; ctx.strokeRect(bx, by, bw, bh);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffd166'; ctx.font = 'bold 26px Arial';
+            ctx.fillText('📅 일일 출석 보상', W / 2, by + 44);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial';
+            ctx.fillText(`${game.attendStreak}일 연속 출석! (${((game.attendStreak - 1) % 7) + 1}/7일차)`, W / 2, by + 92);
+            ctx.fillStyle = '#7CFC8A'; ctx.font = 'bold 20px Arial';
+            ctx.fillText('받은 보상: ' + ATTEND_REWARDS[(game.attendStreak - 1) % 7].label, W / 2, by + 132);
+            const bW = 180, bH = 44, bX = W / 2 - bW / 2, bY = by + bh - 64;
+            ctx.fillStyle = '#27ae60'; ctx.fillRect(bX, bY, bW, bH);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial';
+            ctx.fillText('받기 ✔', bX + bW / 2, bY + bH / 2);
+            game.attendButtons = [{ x: bX, y: bY, w: bW, h: bH, action: 'close' }];
+        }
+
+        // ============================================================
+        //  🛍️ 일일 랜덤 상점 (매일 갱신, 코인으로 구매)
+        // ============================================================
+        const DAILY_SHOP_POOL = [2, 2, 3, 3, 4]; // 등장 가능 등급 (에픽~레전더리)
+        const DAILY_SHOP_COST = { 2: 30000, 3: 90000, 4: 250000 };
+        function refreshDailyShop() {
+            const today = todayStr();
+            if (game.dailyShopDate === today && game.dailyShopItems.length) return; // 오늘 매물 유지
+            game.dailyShopDate = today;
+            game.dailyShopItems = [];
+            for (let i = 0; i < 4; i++) {
+                const rarity = DAILY_SHOP_POOL[Math.floor(Math.random() * DAILY_SHOP_POOL.length)];
+                const cat = ITEM_CATS[Math.floor(Math.random() * ITEM_CATS.length)];
+                game.dailyShopItems.push({ cat, rarity, cost: DAILY_SHOP_COST[rarity], bought: false });
+            }
+            saveProgress();
+        }
+        function openDailyShop() { refreshDailyShop(); game.showDailyShop = true; }
+        function buyDailyItem(i) {
+            const offer = game.dailyShopItems[i];
+            if (!offer || offer.bought) return;
+            if (game.coins < offer.cost) { floatMsg('코인 부족!', '#ff6b6b'); return; }
+            game.coins -= offer.cost;
+            offer.bought = true;
+            const item = makeItem(offer.cat, offer.rarity);
+            addToBag(item); autoEquipIfBetter(item);
+            floatMsg(`🛍️ ${RARITIES[offer.rarity].name} ${offer.cat} 구매!`, RARITIES[offer.rarity].color);
+            saveProgress();
+        }
+        function drawDailyShopUI() {
+            if (!game.showDailyShop) return;
+            const W = canvas.width, H = canvas.height;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+            const bw = 560, bh = 420, bx = (W - bw) / 2, by = (H - bh) / 2;
+            ctx.fillStyle = '#161628'; ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = '#f39c12'; ctx.lineWidth = 3; ctx.strokeRect(bx, by, bw, bh);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            ctx.fillStyle = '#f6c453'; ctx.font = 'bold 24px Arial';
+            ctx.fillText('🛍️ 일일 랜덤 상점', W / 2, by + 16);
+            ctx.fillStyle = '#aaa'; ctx.font = '13px Arial';
+            ctx.fillText('매일 자정 갱신 · 보유 🪙 ' + game.coins.toLocaleString(), W / 2, by + 48);
+            game.dailyShopButtons = [];
+            game.dailyShopItems.forEach((offer, i) => {
+                const cy = by + 76 + i * 74;
+                ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(bx + 24, cy, bw - 48, 64);
+                ctx.strokeStyle = RARITIES[offer.rarity].color; ctx.lineWidth = 2; ctx.strokeRect(bx + 24, cy, bw - 48, 64);
+                ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                ctx.fillStyle = RARITIES[offer.rarity].color; ctx.font = 'bold 18px Arial';
+                ctx.fillText(`${RARITIES[offer.rarity].name} ${offer.cat}`, bx + 40, cy + 24);
+                ctx.fillStyle = '#cfe8ff'; ctx.font = '13px Arial';
+                ctx.fillText('🪙 ' + offer.cost.toLocaleString(), bx + 40, cy + 46);
+                const bW = 130, bH = 40, bX = bx + bw - 24 - bW - 16, bY = cy + 12;
+                if (offer.bought) {
+                    ctx.fillStyle = '#555'; ctx.fillRect(bX, bY, bW, bH);
+                    ctx.fillStyle = '#bbb'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center';
+                    ctx.fillText('판매완료', bX + bW / 2, bY + bH / 2);
+                } else {
+                    const ok = game.coins >= offer.cost;
+                    ctx.fillStyle = ok ? '#27ae60' : '#7f3b3b'; ctx.fillRect(bX, bY, bW, bH);
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center';
+                    ctx.fillText('구매', bX + bW / 2, bY + bH / 2);
+                    game.dailyShopButtons.push({ x: bX, y: bY, w: bW, h: bH, action: 'buy', idx: i });
+                }
+            });
+            const cW = 160, cH = 40, cX = W / 2 - cW / 2, cY = by + bh - 52;
+            ctx.fillStyle = '#555'; ctx.fillRect(cX, cY, cW, cH);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('닫기', cX + cW / 2, cY + cH / 2);
+            game.dailyShopButtons.push({ x: cX, y: cY, w: cW, h: cH, action: 'close' });
+        }
+
+        // ============================================================
+        //  📖 스토리 / 대화 컷신 (2막부터)
+        // ============================================================
+        // key → { title, lines: [{who, text}] }. lines 텍스트는 자유롭게 수정 가능
+        const STORY_SCRIPTS = {
+            act2_open: {
+                title: '제 2막 — 균열 너머',
+                lines: [
+                    { who: '???', text: '여기까지 온 모험가가 있다니… 천상의 문이 정말로 열렸군.' },
+                    { who: '나', text: '이 너머에 뭐가 있든, 끝을 보러 왔다.' },
+                    { who: '???', text: '좋다. 그 각오, 2막의 시련이 시험해 주마.' }
+                ]
+            },
+            act2_mid: {
+                title: '제 2막 — 흔들리는 세계',
+                lines: [
+                    { who: '수호자', text: '여기서 더 가면 돌아올 수 없을지도 몰라.' },
+                    { who: '나', text: '돌아갈 생각이었으면 애초에 오지 않았어.' }
+                ]
+            },
+            act2_final: {
+                title: '제 2막 — 최후의 문',
+                lines: [
+                    { who: '천상의 주인', text: '결국 내 앞까지 왔구나, 인간.' },
+                    { who: '나', text: '이 싸움을 끝내겠다.' },
+                    { who: '천상의 주인', text: '그 말, 후회하지 않기를.' }
+                ]
+            }
+        };
+        function maybeTriggerStory(zoneIdx) {
+            if (ACT2_START_ZONE < 0) return;            // 2막 데이터 없으면 패스
+            let key = null;
+            if (zoneIdx === ACT2_START_ZONE) key = 'act2_open';
+            else if (zoneIdx === ACT2_START_ZONE + 24) key = 'act2_mid';
+            else if (zoneIdx === ACT2_FINAL_ZONE) key = 'act2_final';
+            if (!key || game.storySeen.includes(key) || !STORY_SCRIPTS[key]) return;
+            game.storySeen.push(key);
+            game.storyActive = true;
+            game.story = STORY_SCRIPTS[key];
+            game.storyLines = STORY_SCRIPTS[key].lines;
+            game.storyIndex = 0;
+            saveProgress();
+        }
+        function advanceStory() {
+            if (!game.storyActive) return;
+            game.storyIndex++;
+            if (game.storyIndex >= game.storyLines.length) { game.storyActive = false; game.story = null; }
+        }
+        function drawStoryUI() {
+            if (!game.storyActive || !game.storyLines.length) return;
+            const W = canvas.width, H = canvas.height;
+            ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(0, 0, W, H);
+            // 제목
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffd166'; ctx.font = 'bold 30px Arial';
+            ctx.fillText(game.story ? game.story.title : '', W / 2, H / 2 - 120);
+            // 대사창
+            const bw = 760, bh = 150, bx = (W - bw) / 2, by = H - bh - 40;
+            ctx.fillStyle = 'rgba(10,10,22,0.96)'; ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = '#8fb7ff'; ctx.lineWidth = 3; ctx.strokeRect(bx, by, bw, bh);
+            const line = game.storyLines[game.storyIndex] || { who: '', text: '' };
+            ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+            ctx.fillStyle = '#6ad1ff'; ctx.font = 'bold 20px Arial';
+            ctx.fillText(line.who, bx + 24, by + 18);
+            ctx.fillStyle = '#fff'; ctx.font = '18px Arial';
+            // 긴 대사 줄바꿈
+            wrapText(line.text, bx + 24, by + 56, bw - 48, 26);
+            ctx.fillStyle = '#9fb3c8'; ctx.font = '13px Arial'; ctx.textAlign = 'right';
+            ctx.fillText(`▶ 클릭/스페이스로 계속  (${game.storyIndex + 1}/${game.storyLines.length})`, bx + bw - 20, by + bh - 24);
+        }
+        // 캔버스 텍스트 줄바꿈 헬퍼
+        function wrapText(text, x, y, maxW, lineH) {
+            const words = String(text).split('');
+            let lineStr = '';
+            for (const ch of words) {
+                if (ctx.measureText(lineStr + ch).width > maxW) {
+                    ctx.fillText(lineStr, x, y); y += lineH; lineStr = ch;
+                } else lineStr += ch;
+            }
+            ctx.fillText(lineStr, x, y);
         }
 
         // 게임 루프
@@ -7043,6 +7511,8 @@
             if (game.spiritCooldown > 0) game.spiritCooldown--;
             if (game.summonFlash > 0) game.summonFlash--;
             if (game.invuln > 0) game.invuln--;
+            // 🔥 콤보 타이머: 시간 지나면 콤보 리셋
+            if (game.comboTimer > 0) { game.comboTimer--; if (game.comboTimer === 0) game.comboKills = 0; }
 
             // 불투명 전체화면 모달(상점/퀘스트/지도)이 열려 있으면 뒤 월드 렌더 생략 (렉 방지)
             // — 어차피 모달이 화면을 덮으므로 단색으로만 클리어
@@ -7092,6 +7562,9 @@
             drawQuestUI();
             drawMenu();
             drawRhythm();
+            drawAttendUI();
+            drawDailyShopUI();
+            drawStoryUI();
             requestAnimationFrame(gameLoop);
         }
 
@@ -7544,6 +8017,7 @@
         updateLoadingOverlay();
         loadCharacter();
         initMonsters();
+        checkAttendance(); // 📅 새 날짜면 출석 보상 + 팝업
         gameLoop();
         showBurningEventBanner();
         initOnlineRank(); // 온라인 랭킹 (설정돼 있으면 연결, 아니면 무시)
