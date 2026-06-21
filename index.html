@@ -1132,14 +1132,21 @@
             return b;
         }
 
+        // === 스탯 캐싱: 매 프레임 한 번만 계산 (장비/보석/버프 바뀌면 invalidateStats로 재계산) ===
+        // effAttack/effDefense/effMaxHp가 프레임당 수십 번 호출돼서, 캐시로 크롬북 등 저사양 렉을 줄임.
+        const _statCache = { atk: null, def: null, maxHp: null };
+        function invalidateStats() { _statCache.atk = null; _statCache.def = null; _statCache.maxHp = null; }
+
         // 장비 + 잠재(공/방 %) 포함 실제 공격력 / 방어력
         function effAttack() {
+            if (_statCache.atk !== null) return _statCache.atk;
             const p = getPotentialBonus();
-            return Math.round((game.character.stats.attack + getEquipBonus().attack) * (1 + (p.atkPct + gemBonus('attack') + passiveBonus('atkPct') + petStatBonus() + homeBonus('atk') + guildBonus('atk') + awaken2Bonus('atkPct') + medalBonus() + medalAbilityBonus('atkPct') + setBonus() + achBonus()) / 100) * (game.awakened ? AWAKEN_ATK_MULT : 1) * (game.awakened2 ? AWAKEN_ATK_MULT : 1));
+            return _statCache.atk = Math.round((game.character.stats.attack + getEquipBonus().attack) * (1 + (p.atkPct + gemBonus('attack') + passiveBonus('atkPct') + petStatBonus() + homeBonus('atk') + guildBonus('atk') + awaken2Bonus('atkPct') + medalBonus() + medalAbilityBonus('atkPct') + setBonus() + achBonus()) / 100) * (game.awakened ? AWAKEN_ATK_MULT : 1) * (game.awakened2 ? AWAKEN_ATK_MULT : 1));
         }
         function effDefense() {
+            if (_statCache.def !== null) return _statCache.def;
             const p = getPotentialBonus();
-            return Math.round((game.character.stats.defense + getEquipBonus().defense) * (1 + (p.defPct + gemBonus('defense') + passiveBonus('defPct') + petStatBonus() + homeBonus('def') + guildBonus('def') + awaken2Bonus('defPct') + medalBonus() + medalAbilityBonus('defPct') + setBonus()) / 100));
+            return _statCache.def = Math.round((game.character.stats.defense + getEquipBonus().defense) * (1 + (p.defPct + gemBonus('defense') + passiveBonus('defPct') + petStatBonus() + homeBonus('def') + guildBonus('def') + awaken2Bonus('defPct') + medalBonus() + medalAbilityBonus('defPct') + setBonus()) / 100));
         }
 
         // === 🏅 도전과제 (달성 시 영구 공격력 % 보너스) ===
@@ -1175,7 +1182,8 @@
         }
         // 보석 포함 최대 체력
         function effMaxHp() {
-            return Math.round(game.character.stats.maxHp * (1 + (gemBonus('hp') + homeBonus('hp') + guildBonus('hp') + medalAbilityBonus('hpPct')) / 100));
+            if (_statCache.maxHp !== null) return _statCache.maxHp;
+            return _statCache.maxHp = Math.round(game.character.stats.maxHp * (1 + (gemBonus('hp') + homeBonus('hp') + guildBonus('hp') + medalAbilityBonus('hpPct')) / 100));
         }
         // === 길드 강화 (코인) — 마이홈처럼 레벨당 % 보너스 (atk/def/hp) ===
         const GUILD_UP_PCT = 6;       // 레벨당 +6%
@@ -2448,6 +2456,7 @@
                 st.statPoints += 5; // 5포인트 획득
                 st.maxHp += 20;
                 st.maxMana += 10;
+                invalidateStats(); // maxHp 증가 반영
                 st.hp = effMaxHp(); // 보석 포함 풀피로 회복
                 st.mana = st.maxMana;
 
@@ -5092,6 +5101,7 @@
             if (n <= 0) return;
             st[key] += 5 * n;
             st.statPoints -= n;
+            invalidateStats(); // 스탯 변경 → 캐시 재계산
             if (key === 'maxHp') st.hp = effMaxHp();
             if (key === 'maxMana') st.mana = st.maxMana;
             saveProgress();
@@ -7288,6 +7298,7 @@
                 st.exp -= st.maxExp; st.level++; st.maxExp += DIFF.levelExpAdd;
                 st.statPoints += 5; st.maxHp += 20; st.maxMana += 10;
             }
+            invalidateStats(); // maxHp 증가 반영
             st.hp = effMaxHp(); st.mana = st.maxMana;
         }
         function buyGuildItem(key) {
@@ -7870,7 +7881,13 @@
         }
 
         // 게임 루프
+        const MAX_EFFECTS = 90;     // 스킬 이펙트 상한 (저사양 렉 방지)
+        const MAX_DMGTEXT = 70;     // 데미지 텍스트 상한
         function gameLoop() {
+            invalidateStats(); // 프레임마다 스탯 캐시 초기화 → 이번 프레임은 1회만 계산
+            // 이펙트/데미지텍스트가 너무 많이 쌓이면 오래된 것부터 제거 (렉 방지)
+            if (game.skillEffects.length > MAX_EFFECTS) game.skillEffects.splice(0, game.skillEffects.length - MAX_EFFECTS);
+            if (game.damageText.length > MAX_DMGTEXT) game.damageText.splice(0, game.damageText.length - MAX_DMGTEXT);
             update();
             if (game.showRhythm) updateRhythm(); // 리듬게임은 월드가 멈춰도 진행
             // 클리어/플래시/무적 타이머는 gameLoop에서 항상 처리 (모달(스텟 등)이 열려도 계속 줄어들게)
