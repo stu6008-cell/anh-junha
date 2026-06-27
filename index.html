@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> time way ai</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Arial, sans-serif;
+        }
+
+        .game-container {
+            transform-origin: center center;
+            position: relative;
+            width: 1000px;
+            height: 600px;
+            background: #87ceeb;
+            border: 5px solid #333;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.82);
+            color: #fff;
+            font: bold 28px Arial, sans-serif;
+            letter-spacing: 0;
+            z-index: 90;
+            pointer-events: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .ui {
+            display: none;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        .controls p {
+            margin: 5px 0;
+        }
+
+        /* 볼륨 슬라이더 (메뉴 설정 탭에서만 표시) */
+        #volSlider {
+            position: absolute;
+            display: none;
+            height: 22px;
+            z-index: 30;
+            accent-color: #ffd700;
+            cursor: pointer;
+        }
+
+        /* 이름 입력창 */
+        #nameModal {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.65);
+            z-index: 50;
+        }
+        #nameModal .box {
+            background: rgba(15, 20, 40, 0.97);
+            border: 3px solid #ffd700;
+            border-radius: 12px;
+            padding: 28px 32px;
+            text-align: center;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+        #nameModal h2 { color: #ffd700; margin-bottom: 6px; font-size: 22px; }
+        #nameModal p { color: #b8c2d8; font-size: 13px; margin-bottom: 16px; }
+        #nameInput {
+            width: 240px; padding: 10px 12px; font-size: 16px;
+            border-radius: 8px; border: 2px solid #8fb7ff; outline: none;
+            text-align: center; margin-bottom: 16px;
+        }
+        #nameOk {
+            display: block; width: 100%; padding: 10px;
+            background: #ffd700; color: #1a1a2a; font-weight: bold; font-size: 16px;
+            border: none; border-radius: 8px; cursor: pointer;
+        }
+        #nameOk:hover { background: #ffe34d; }
+
+        /* ===== 턴제 PvP ===== */
+        #pvpModal {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.72);
+            z-index: 60;
+            font-family: Arial, sans-serif;
+        }
+        #pvpBody {
+            background: rgba(14, 18, 34, 0.98);
+            border: 3px solid #ff6b6b;
+            border-radius: 14px;
+            padding: 22px 26px;
+            width: 560px;
+            max-width: 92%;
+            color: #fff;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        }
+        #pvpBody h2 { color: #ff8a8a; margin: 0 0 4px; font-size: 22px; }
+        #pvpBody .sub { color: #b8c2d8; font-size: 13px; margin-bottom: 16px; }
+        .pvp-btn {
+            display: inline-block; padding: 11px 16px; margin: 5px;
+            background: #2b3450; color: #fff; font-weight: bold; font-size: 15px;
+            border: 2px solid #4a5a82; border-radius: 9px; cursor: pointer;
+        }
+        .pvp-btn:hover:not(:disabled) { filter: brightness(1.25); }
+        .pvp-btn.primary { background: #ff6b6b; border-color: #ff6b6b; color: #1a1020; }
+        .pvp-btn.primary:hover { background: #ff8585; }
+        .pvp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pvp-btn.skill { display: block; width: 100%; text-align: left; margin: 4px 0; }
+        #pvpCodeInput {
+            width: 150px; padding: 9px; font-size: 20px; letter-spacing: 6px;
+            text-align: center; border-radius: 8px; border: 2px solid #8fb7ff;
+            outline: none; margin: 6px;
+        }
+        .pvp-code-big { font-size: 40px; letter-spacing: 10px; color: #ffd700; font-weight: bold; margin: 8px 0; }
+        .pvp-close { position: absolute; top: 10px; right: 14px; font-size: 22px; color: #b8c2d8; cursor: pointer; }
+
+        /* ===== 실시간 PvP 아레나 ===== */
+        #pvpArena { background:#0d1426; border-radius:10px; display:block; margin:8px auto; border:2px solid #33415f; touch-action:none; }
+        .pvp-hint { font-size:11px; color:#8893ab; margin-top:8px; line-height:1.5; }
+        .pvp-hint b { color:#cdd6ea; }
+
+        /* ===== 채팅 (월드 / 길드 / 친구) ===== */
+        #chatModal { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); z-index:61; font-family:Arial, sans-serif; }
+        #chatBody { position:relative; background:rgba(14,18,34,0.98); border:3px solid #4aa3ff; border-radius:14px; width:380px; max-width:94%; height:480px; max-height:88%; padding:16px; display:flex; flex-direction:column; color:#fff; box-shadow:0 12px 40px rgba(0,0,0,0.5); }
+        .chat-close { position:absolute; top:8px; right:12px; font-size:20px; color:#b8c2d8; cursor:pointer; }
+        .chat-tabs { display:flex; gap:6px; margin:2px 24px 8px 0; }
+        .chat-tab { flex:1; padding:8px 0; background:#222a3d; color:#cdd6ea; border:1px solid #3a4a6a; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer; }
+        .chat-tab.on { background:#2b6cb0; color:#fff; border-color:#4aa3ff; }
+        .chat-friend { display:flex; gap:6px; margin-bottom:6px; }
+        .chat-friend input { flex:1; padding:7px; border-radius:7px; border:1px solid #4a5a82; background:#0e1424; color:#fff; outline:none; }
+        .chat-msgs { flex:1; overflow-y:auto; background:rgba(0,0,0,0.3); border-radius:8px; padding:8px; font-size:13px; text-align:left; }
+        .cm { margin:3px 0; color:#dfe6f4; word-break:break-word; }
+        .cm b { color:#7fc0ff; }
+        .cm.mine b { color:#ffd166; }
+        .chat-empty { color:#7a86a0; text-align:center; padding:14px; font-size:12px; }
+        .chat-input-row { display:flex; gap:6px; margin-top:8px; }
+        .chat-input-row input { flex:1; padding:9px; border-radius:8px; border:2px solid #4aa3ff; background:#0e1424; color:#fff; outline:none; }
+        .chat-send { padding:9px 14px; background:#2b6cb0; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; white-space:nowrap; }
+
+        /* ===== 경매장 ===== */
+        #aucModal { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); z-index:62; font-family:Arial, sans-serif; }
+        #aucBody { position:relative; background:rgba(16,18,30,0.99); border:3px solid #f1c40f; border-radius:14px; width:520px; max-width:95%; height:520px; max-height:90%; padding:16px; display:flex; flex-direction:column; color:#fff; box-shadow:0 12px 40px rgba(0,0,0,0.5); }
+        .auc-close { position:absolute; top:8px; right:12px; font-size:20px; color:#b8c2d8; cursor:pointer; }
+        .auc-head { display:flex; align-items:center; gap:10px; margin:0 24px 8px 0; }
+        .auc-head h2 { margin:0; font-size:19px; color:#ffd35b; }
+        .auc-coins { margin-left:auto; font-size:13px; color:#ffd166; font-weight:bold; }
+        .auc-tabs { display:flex; gap:6px; margin-bottom:8px; }
+        .auc-tab { flex:1; padding:8px 0; background:#2a2a18; color:#e6dcb0; border:1px solid #5a4a1a; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer; }
+        .auc-tab.on { background:#b8860b; color:#fff; border-color:#f1c40f; }
+        .auc-list { flex:1; overflow-y:auto; background:rgba(0,0,0,0.3); border-radius:8px; padding:6px; }
+        .auc-row { display:flex; align-items:center; gap:8px; padding:7px 8px; border-bottom:1px solid rgba(255,255,255,0.06); }
+        .auc-row .nm { flex:1; font-size:13px; }
+        .auc-row .pw { font-size:11px; color:#9fb0c4; }
+        .auc-row .pr { font-size:13px; color:#ffd166; font-weight:bold; white-space:nowrap; }
+        .auc-row.sel { background:rgba(241,196,15,0.16); border-radius:6px; }
+        .auc-btn { padding:6px 12px; background:#b8860b; color:#fff; border:none; border-radius:7px; font-weight:bold; font-size:12px; cursor:pointer; white-space:nowrap; }
+        .auc-btn.cancel { background:#7f8c8d; }
+        .auc-empty { color:#7a86a0; text-align:center; padding:18px; font-size:12px; }
+        .auc-sellbar { display:flex; gap:6px; margin-top:8px; align-items:center; }
+        .auc-sellbar input { width:140px; padding:9px; border-radius:8px; border:2px solid #f1c40f; background:#0e1424; color:#fff; outline:none; }
+        .auc-sellbar .lab { font-size:12px; color:#cdd6ea; flex:1; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="1000" height="600"></canvas>
+        <div id="loadingOverlay" class="loading-overlay">로딩중입니다.</div>
+        <div class="ui">
+            <p><strong>캐릭터: <span id="charName">모험가</span></strong></p>
+            <p id="posInfo">위치: (0, 0)</p>
+            <p id="dirInfo">방향: 정지</p>
+        </div>
+        <audio id="bgm" loop preload="auto">
+            <source src="./bgm.mp3" type="audio/mpeg">
+        </audio>
+        <input type="range" id="volSlider" min="0" max="100" value="35">
+        <div id="nameModal">
+            <div class="box">
+                <h2>⚔️ 이름을 정하세요</h2>
+                <p>게임에서 사용할 닉네임 (최대 10자)</p>
+                <input id="nameInput" type="text" maxlength="10" placeholder="예: 용사123">
+                <button id="nameOk">시작하기 ▶</button>
+            </div>
+        </div>
+        <div id="pvpModal">
+            <div id="pvpBody"><!-- JS로 렌더링 --></div>
+        </div>
+        <div id="chatModal">
+            <div id="chatBody"><!-- JS로 렌더링 --></div>
+        </div>
+        <div id="aucModal">
+            <div id="aucBody"><!-- JS로 렌더링 --></div>
+        </div>
+    </div>
+
+    <!-- 핵심 로직 9분할 — 이 순서 그대로 로드해야 함 (boot.js 가 마지막=진입점) -->
+    <script src="data.js"></script>
+    <script src="logic.js"></script>
+    <script src="render.js"></script>
+    <script src="net.js"></script>
+    <script src="pvp.js"></script>
+    <script src="chat.js"></script>
+    <script src="auction.js"></script>
+    <script src="guild.js"></script>
+    <script src="boot.js"></script>
+</body>
+</html>
