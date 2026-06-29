@@ -117,6 +117,7 @@
             hits: { perfect: 0, good: 0, miss: 0 },
             judge: '', judgeColor: '#fff', judgeT: 0,
             flash: [0, 0, 0, 0], lastScore: 0, coinReward: 0, gotMike: false,
+            holding: [null, null, null, null], // 🎵 롱노트: 레인별 누르고 있는 노트
             buttons: []
         };
         let rgBest = parseInt(localStorage.getItem('rhythmBest') || '0', 10) || 0;
@@ -134,6 +135,12 @@
             while (t < RG_SONG_LEN) {
                 if (rand() < 0.18) { t += beat; continue; }      // 쉼표
                 const lane = Math.floor(rand() * 4);
+                if (rand() < 0.15) {                              // 🎵 가끔 롱노트(길게 누르기)
+                    const hb = 2 + Math.floor(rand() * 3);        // 2~4박자 길이
+                    notes.push({ time: t, lane, hold: true, dur: beat * hb, hit: false, dead: false, headJudged: false });
+                    t += beat * (hb + 1);                         // 롱노트 뒤엔 한 박자 여유
+                    continue;
+                }
                 notes.push({ time: t, lane, hit: false, dead: false });
                 if (rand() < 0.12) {                              // 가끔 더블노트
                     let l2 = Math.floor(rand() * 4);
@@ -155,6 +162,7 @@
             rg.score = 0; rg.combo = 0; rg.maxCombo = 0;
             rg.hits = { perfect: 0, good: 0, miss: 0 };
             rg.judge = ''; rg.judgeT = 0; rg.flash = [0, 0, 0, 0];
+            rg.holding = [null, null, null, null];
             rg.coinReward = 0; rg.gotMike = false;
             rg.startT = performance.now();
             rg.state = 'play';
@@ -169,30 +177,71 @@
             const now = rgSongTime();
             let best = null, bestD = 1e9;
             for (const n of rg.notes) {
-                if (n.lane !== lane || n.hit || n.dead) continue;
+                if (n.lane !== lane || n.hit || n.dead || n.headJudged) continue; // 누르는 중인 롱노트는 제외
                 const d = Math.abs(n.time - now);
                 if (d < bestD) { bestD = d; best = n; }
             }
             if (best && bestD <= RG_GOOD) {
-                best.hit = true;
                 sfx('note');
-                if (bestD <= RG_PERFECT) { rg.score += 300 + rg.combo * 2; rg.hits.perfect++; rgJudge('PERFECT', '#ffd166'); }
-                else { rg.score += 120 + rg.combo; rg.hits.good++; rgJudge('GOOD', '#4dd2ff'); }
+                const perfect = bestD <= RG_PERFECT;
+                if (best.hold) {
+                    // 🎵 롱노트 머리 판정 → 끝까지 누르고 있기 시작
+                    best.headJudged = true;
+                    rg.holding[lane] = best;
+                    if (perfect) { rg.score += 200 + rg.combo * 2; rg.hits.perfect++; rgJudge('PERFECT', '#ffd166'); }
+                    else { rg.score += 100 + rg.combo; rg.hits.good++; rgJudge('GOOD', '#4dd2ff'); }
+                } else {
+                    best.hit = true;
+                    if (perfect) { rg.score += 300 + rg.combo * 2; rg.hits.perfect++; rgJudge('PERFECT', '#ffd166'); }
+                    else { rg.score += 120 + rg.combo; rg.hits.good++; rgJudge('GOOD', '#4dd2ff'); }
+                }
                 rg.combo++; if (rg.combo > rg.maxCombo) rg.maxCombo = rg.combo;
             } else {
                 // 헛침: 콤보 끊김 + 감점 1회 + 통계 반영. 근처 살아있는 노트는 소비시켜 나중에 또 감점되지 않게
                 rg.combo = 0;
                 rg.score = Math.max(0, rg.score - RG_MISS_PENALTY);
                 rg.hits.miss++;
-                if (best && bestD <= RG_GOOD * 2 && !best.hit && !best.dead) best.dead = true;
+                if (best && bestD <= RG_GOOD * 2 && !best.hit && !best.dead && !best.headJudged) best.dead = true;
                 rgJudge('MISS', '#ff5a7a');
+            }
+        }
+        // 🎵 롱노트 키를 뗐을 때 — 끝까지 잘 눌렀으면 성공(HOLD!), 너무 일찍 떼면 끊김(BREAK)
+        function rgRelease(lane) {
+            if (rg.state !== 'play') return;
+            const n = rg.holding[lane];
+            if (!n) return;
+            rg.holding[lane] = null;
+            const now = rgSongTime();
+            const end = n.time + n.dur;
+            if (now >= end - RG_GOOD) {
+                // 끝까지 누르고 뗌 → 성공 보너스
+                n.hit = true;
+                rg.score += 150 + rg.combo * 2; rg.hits.perfect++;
+                rg.combo++; if (rg.combo > rg.maxCombo) rg.maxCombo = rg.combo;
+                sfx('note'); rgJudge('HOLD!', '#7CFC8A');
+            } else {
+                // 너무 일찍 뗌 → 끊김
+                n.dead = true; rg.combo = 0;
+                rg.score = Math.max(0, rg.score - RG_MISS_PENALTY); rg.hits.miss++;
+                rgJudge('BREAK', '#ff5a7a');
             }
         }
         function updateRhythm() {
             if (rg.state !== 'play') return;
             const now = rgSongTime();
+            // 🎵 롱노트: 끝까지 누르고 있으면(머리 판정 후 end 도달) 자동 성공
+            for (let l = 0; l < 4; l++) {
+                const n = rg.holding[l];
+                if (n && now >= n.time + n.dur) {
+                    n.hit = true; rg.holding[l] = null;
+                    rg.score += 150 + rg.combo * 2; rg.hits.perfect++;
+                    rg.combo++; if (rg.combo > rg.maxCombo) rg.maxCombo = rg.combo;
+                    sfx('note'); rgJudge('HOLD!', '#7CFC8A');
+                }
+            }
             for (const n of rg.notes) {
                 if (!n.hit && !n.dead && now - n.time > RG_GOOD) {
+                    if (n.hold && n.headJudged) continue; // 누르고 있는 롱노트는 미스 아님(end에서 자동 성공)
                     n.dead = true; rg.combo = 0; rg.hits.miss++; rg.score = Math.max(0, rg.score - RG_MISS_PENALTY); rgJudge('MISS', '#ff5a7a');
                 }
             }
@@ -369,12 +418,30 @@
                 const now = rgSongTime();
                 for (const n of rg.notes) {
                     if (n.hit || n.dead) continue;
-                    const dt = n.time - now;
-                    if (dt > RG_APPROACH || dt < -RG_GOOD) continue;
-                    const ny = top + (hitY - top) * (1 - dt / RG_APPROACH);
                     const lx = left + n.lane * (laneW + gap);
-                    ctx.fillStyle = RG_COLORS[n.lane];
-                    ctx.fillRect(lx + 7, ny - 11, laneW - 14, 22);
+                    if (n.hold) {
+                        // 🎵 롱노트: 머리~꼬리를 잇는 긴 막대
+                        const headDt = n.time - now, tailDt = (n.time + n.dur) - now;
+                        if (headDt > RG_APPROACH || tailDt < -RG_GOOD) continue;
+                        let headY = top + (hitY - top) * (1 - headDt / RG_APPROACH);
+                        const tailY = top + (hitY - top) * (1 - tailDt / RG_APPROACH);
+                        if (n.headJudged) headY = hitY; // 누르는 중엔 머리를 판정선에 고정
+                        const yTop = Math.min(headY, tailY), yBot = Math.max(headY, tailY);
+                        ctx.save();
+                        ctx.globalAlpha = n.headJudged ? 0.95 : 0.5;
+                        ctx.fillStyle = RG_COLORS[n.lane];
+                        ctx.fillRect(lx + 16, yTop, laneW - 32, yBot - yTop); // 본체(얇은 띠)
+                        ctx.restore();
+                        ctx.fillStyle = RG_COLORS[n.lane];
+                        ctx.fillRect(lx + 7, headY - 11, laneW - 14, 22);      // 머리 캡
+                        if (!n.headJudged) ctx.fillRect(lx + 7, tailY - 6, laneW - 14, 12); // 꼬리 캡
+                    } else {
+                        const dt = n.time - now;
+                        if (dt > RG_APPROACH || dt < -RG_GOOD) continue;
+                        const ny = top + (hitY - top) * (1 - dt / RG_APPROACH);
+                        ctx.fillStyle = RG_COLORS[n.lane];
+                        ctx.fillRect(lx + 7, ny - 11, laneW - 14, 22);
+                    }
                 }
                 ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.font = 'bold 18px Arial';
                 ctx.fillText('점수 ' + rg.score.toLocaleString(), left, top - 36);
@@ -398,6 +465,7 @@
                 if (rg.state === 'intro') {
                     line('🎵 노래노래 리듬게임', '#ffd166', 'bold 26px Arial'); ly += 4;
                     line('Q W E R 키로 노트를 판정선에 맞춰 치세요!  (MISS 시 감점)', '#fff', '15px Arial');
+                    line('긴 막대(롱노트)는 끝까지 누르고 있다가 떼세요! 일찍 떼면 BREAK', '#7CFC8A', '13px Arial');
                     line('보유 음표  🎵 ' + game.musicNotes, '#ff9be3', 'bold 18px Arial');
                     line('최고 점수: ' + rgBest.toLocaleString(), '#fff', '15px Arial');
                     line(rhythmEventActive() ? '할 때마다 음표 획득! (이벤트 7/10까지)' : '이벤트 종료 — 점수 도전만 가능', '#aaa', '13px Arial');

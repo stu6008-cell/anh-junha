@@ -1002,7 +1002,7 @@
                 if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
                 if (rg.state === 'play') {
                     const li = RG_KEYS.indexOf(e.key.toLowerCase());
-                    if (li >= 0) rgHit(li);
+                    if (li >= 0 && !e.repeat) rgHit(li); // !e.repeat: 키 자동반복은 무시(롱노트 홀드 중 헛침 방지)
                     if (e.key === 'Escape') closeRhythm();
                 } else if (rg.state === 'shop') {
                     if (e.key === 'Escape') rg.state = 'intro';
@@ -1079,6 +1079,11 @@
 
         window.addEventListener('keyup', (e) => {
             keys[e.key.toLowerCase()] = false;
+            // 🎵 리듬게임 롱노트: 키를 떼면 홀드 판정
+            if (game.showRhythm && rg.state === 'play') {
+                const li = RG_KEYS.indexOf(e.key.toLowerCase());
+                if (li >= 0) rgRelease(li);
+            }
         });
 
         // 창 포커스를 잃으면(Alt+Tab 등) 눌린 키를 모두 해제 — 캐릭터가 계속 달려가는 끼임 방지
