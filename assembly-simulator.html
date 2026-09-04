@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>8086 어셈블리 시뮬레이터</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #dcdcdc;
+    --accent: #0e639c;
+    --highlight: #094771;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Consolas, Menlo, "D2Coding", "맑은 고딕", monospace;
+    font-size: 14px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .hint { color: #888; font-size: 12px; margin-bottom: 12px; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  button, select {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover, select:hover { background: #1177bb; }
+  #error { color: #f48771; min-height: 20px; margin-bottom: 8px; }
+  .layout { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .panel h2 { font-size: 13px; margin: 0 0 8px; color: #9cdcfe; font-weight: normal; }
+  textarea {
+    width: 380px;
+    height: 320px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+  }
+  #code-view {
+    width: 380px;
+    height: 320px;
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 0;
+  }
+  .line { padding: 1px 8px; white-space: pre; color: #b0b0b0; }
+  .line.current { background: var(--highlight); color: #fff; }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 4px 12px 4px 0; }
+  td.val { color: #b5cea8; text-align: right; padding-right: 16px; }
+  #status { color: #9cdcfe; margin-bottom: 8px; }
+  #memory-view, #stack-view { color: #ce9178; line-height: 1.5; max-height: 130px; overflow: auto; }
+</style>
+</head>
+<body>
+
+<h1>8086 어셈블리 시뮬레이터</h1>
+<div class="hint">코드를 한 줄씩 실행하면서 레지스터가 실제로 바뀌는 걸 보는 도구. 지원: mov, add, sub, inc, dec, cmp, jmp/je/jne/jg/jl/jge/jle, push, pop, call, ret, xor, and, or</div>
+
+<div class="controls">
+  <select id="example-select">
+    <option value="basic">1. 넣기 / 계산하기</option>
+    <option value="jump">2. 점프로 반복하기</option>
+    <option value="array">3. 배열 다 더하기</option>
+    <option value="stack">4. 스택 push / pop</option>
+    <option value="func">5. 함수 call / ret</option>
+    <option value="frame">6. 프롤로그 / 에필로그</option>
+  </select>
+  <button id="reset-btn">리셋</button>
+  <button id="step-btn">한 줄 실행</button>
+  <button id="run-btn">자동 실행</button>
+</div>
+
+<div id="error"></div>
+
+<div class="layout">
+  <div class="panel">
+    <h2>코드 (고치고 "리셋" 누르기)</h2>
+    <textarea id="code" spellcheck="false"></textarea>
+  </div>
+
+  <div class="panel">
+    <h2>실행 (파란 줄 = 다음에 실행될 줄)</h2>
+    <div id="code-view"></div>
+  </div>
+
+  <div class="panel" style="min-width: 220px;">
+    <h2>레지스터</h2>
+    <div id="status"></div>
+    <table>
+      <tr><td>ax</td><td class="val" id="reg-ax">0</td><td>si</td><td class="val" id="reg-si">0</td></tr>
+      <tr><td>bx</td><td class="val" id="reg-bx">0</td><td>di</td><td class="val" id="reg-di">0</td></tr>
+      <tr><td>cx</td><td class="val" id="reg-cx">0</td><td>bp</td><td class="val" id="reg-bp">0</td></tr>
+      <tr><td>dx</td><td class="val" id="reg-dx">0</td><td>sp</td><td class="val" id="reg-sp">0</td></tr>
+    </table>
+    <h2 style="margin-top:12px;">cmp 결과</h2>
+    <div id="flag-cmp" style="color:#b5cea8;">0</div>
+    <h2 style="margin-top:12px;">메모리 (배열 / 변수)</h2>
+    <div id="memory-view"></div>
+    <h2 style="margin-top:12px;">스택</h2>
+    <div id="stack-view"></div>
+  </div>
+</div>
+
+<script src="assembly-simulator.js"></script>
+</body>
+</html>
