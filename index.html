@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>8086 어셈블리 시뮬레이터</title>
+<title>x86-64 어셈블리 시뮬레이터</title>
 <script>
   // 예전 게임 PWA가 남긴 서비스워커/캐시 정리 (sw.js가 자폭하기 전에 새로고침으로 들어온 경우)
   if ('serviceWorker' in navigator) {
@@ -86,8 +86,8 @@
 </head>
 <body>
 
-<h1>8086 어셈블리 시뮬레이터</h1>
-<div class="hint">코드를 한 줄씩 실행하면서 레지스터가 실제로 바뀌는 걸 보는 도구. 지원: mov, add, sub, inc, dec, cmp, jmp/je/jne/jg/jl/jge/jle, push, pop, call, ret, xor, and, or</div>
+<h1>x86-64 어셈블리 시뮬레이터</h1>
+<div class="hint">코드를 한 줄씩 실행하면서 레지스터가 실제로 바뀌는 걸 보는 도구. 지원: mov, add, sub, inc, dec, cmp, jmp/je/jne/jg/jl/jge/jle, push, pop, call, ret, xor, and, or · 레지스터 rax~rsp (eax 표기도 됨) · 데이터 db/dw/dd/dq · 주소 [arr+rbx*4], [rbp-8]</div>
 
 <div class="controls">
   <select id="example-select">
@@ -120,10 +120,10 @@
     <h2>레지스터</h2>
     <div id="status"></div>
     <table>
-      <tr><td>ax</td><td class="val" id="reg-ax">0</td><td>si</td><td class="val" id="reg-si">0</td></tr>
-      <tr><td>bx</td><td class="val" id="reg-bx">0</td><td>di</td><td class="val" id="reg-di">0</td></tr>
-      <tr><td>cx</td><td class="val" id="reg-cx">0</td><td>bp</td><td class="val" id="reg-bp">0</td></tr>
-      <tr><td>dx</td><td class="val" id="reg-dx">0</td><td>sp</td><td class="val" id="reg-sp">0</td></tr>
+      <tr><td>rax</td><td class="val" id="reg-rax">0</td><td>rsi</td><td class="val" id="reg-rsi">0</td></tr>
+      <tr><td>rbx</td><td class="val" id="reg-rbx">0</td><td>rdi</td><td class="val" id="reg-rdi">0</td></tr>
+      <tr><td>rcx</td><td class="val" id="reg-rcx">0</td><td>rbp</td><td class="val" id="reg-rbp">0</td></tr>
+      <tr><td>rdx</td><td class="val" id="reg-rdx">0</td><td>rsp</td><td class="val" id="reg-rsp">0</td></tr>
     </table>
     <h2 style="margin-top:12px;">cmp 결과</h2>
     <div id="flag-cmp" style="color:#b5cea8;">0</div>
