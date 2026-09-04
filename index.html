@@ -82,12 +82,32 @@
   td.val { color: #b5cea8; text-align: right; padding-right: 16px; }
   #status { color: #9cdcfe; margin-bottom: 8px; }
   #memory-view, #stack-view { color: #ce9178; line-height: 1.5; max-height: 130px; overflow: auto; }
+  .flag {
+    display: inline-block;
+    margin: 0 6px 4px 0;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: #777;
+  }
+  .flag.on { background: #37373d; border-color: #6a9955; color: #b5cea8; }
+  #output-view {
+    white-space: pre-wrap;
+    color: #b5cea8;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px;
+    min-height: 40px;
+    max-height: 120px;
+    overflow: auto;
+  }
 </style>
 </head>
 <body>
 
 <h1>x86-64 어셈블리 시뮬레이터</h1>
-<div class="hint">코드를 한 줄씩 실행하면서 레지스터가 실제로 바뀌는 걸 보는 도구. 지원: mov, add, sub, inc, dec, cmp, jmp/je/jne/jg/jl/jge/jle, push, pop, call, ret, xor, and, or · 레지스터 rax~rsp (eax 표기도 됨) · 데이터 db/dw/dd/dq · 주소 [arr+rbx*4], [rbp-8]</div>
+<div class="hint">코드를 한 줄씩 실행하면서 레지스터가 실제로 바뀌는 걸 보는 도구. mov/movzx/movsx/lea/xchg · add/sub/adc/sbb/inc/dec/neg/cmp · mul/imul/div/idiv/cqo/cdq · and/or/xor/not/test/shl/shr/sar/rol/ror · jmp/call/ret/leave/loop + 모든 조건 점프(je, jne, jg, ja, js, jo...) · setcc/cmovcc · push/pop · syscall(write, exit) — 레지스터 rax~r15 전체 (eax/ax/al 포함), 데이터 db/dw/dd/dq/resb/equ, 주소 [arr+rbx*4], [rbp-8]</div>
 
 <div class="controls">
   <select id="example-select">
@@ -97,10 +117,14 @@
     <option value="stack">4. 스택 push / pop</option>
     <option value="func">5. 함수 call / ret</option>
     <option value="frame">6. 프롤로그 / 에필로그</option>
+    <option value="muldiv">7. 곱하기 / 나누기</option>
+    <option value="bits">8. 비트 다루기</option>
+    <option value="hello">9. 화면에 출력하기</option>
   </select>
   <button id="reset-btn">리셋</button>
   <button id="step-btn">한 줄 실행</button>
   <button id="run-btn">자동 실행</button>
+  <button id="finish-btn">끝까지</button>
 </div>
 
 <div id="error"></div>
@@ -116,21 +140,21 @@
     <div id="code-view"></div>
   </div>
 
-  <div class="panel" style="min-width: 220px;">
+  <div class="panel" style="min-width: 250px;">
     <h2>레지스터</h2>
     <div id="status"></div>
-    <table>
-      <tr><td>rax</td><td class="val" id="reg-rax">0</td><td>rsi</td><td class="val" id="reg-rsi">0</td></tr>
-      <tr><td>rbx</td><td class="val" id="reg-rbx">0</td><td>rdi</td><td class="val" id="reg-rdi">0</td></tr>
-      <tr><td>rcx</td><td class="val" id="reg-rcx">0</td><td>rbp</td><td class="val" id="reg-rbp">0</td></tr>
-      <tr><td>rdx</td><td class="val" id="reg-rdx">0</td><td>rsp</td><td class="val" id="reg-rsp">0</td></tr>
-    </table>
-    <h2 style="margin-top:12px;">cmp 결과</h2>
-    <div id="flag-cmp" style="color:#b5cea8;">0</div>
+    <div id="register-view"></div>
+    <h2 style="margin-top:12px;">플래그</h2>
+    <div id="flags-view"></div>
     <h2 style="margin-top:12px;">메모리 (배열 / 변수)</h2>
     <div id="memory-view"></div>
     <h2 style="margin-top:12px;">스택</h2>
     <div id="stack-view"></div>
+  </div>
+
+  <div class="panel" style="min-width: 260px;">
+    <h2>출력 (syscall write)</h2>
+    <div id="output-view"></div>
   </div>
 </div>
 
